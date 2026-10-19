@@ -675,6 +675,42 @@ test("the reveal star glow is a copy of the constellation's stars brighter than 
   assert.ok(api.getChildren(reveal.groupId).some((id) => api.getLayerType(id) === "blurFilter"), "a blur copy");
 });
 
+// A press that changes nothing leaves the Spotlight and the Controls alone; a deleted reveal rebuilds them.
+test("prepareReveals with nothing changed keeps the Spotlight (same id) and makes no layer", () => {
+  const { api, S, sky } = revealFixture();
+  const spot = S.skyLayers(sky).spotlight;
+  const before = api.getCompLayers(false).length;
+  S.prepareReveals(sky);
+  S.prepareReveals(sky);
+  assert.equal(S.skyLayers(sky).spotlight, spot);
+  assert.equal(api.getCompLayers(false).length, before);
+});
+
+test("prepareReveals after a reveal group is deleted rebuilds the Spotlight", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const spot = S.skyLayers(sky).spotlight;
+  api.deleteLayer(reveal.groupId);
+  assert.equal(S.prepareReveals(sky), 1);
+  assert.notEqual(S.skyLayers(sky).spotlight, spot);
+  assert.equal(api.getCompLayers(false).indexOf(spot), -1, "the old Spotlight is gone");
+});
+
+test("the sky's layers are found by their tags, without reading any layer's expression", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const orig = api.get;
+  let reads = 0;
+  api.get = (id, attr) => { if (attr === "generator.expression" || attr === "expression") reads++; return orig(id, attr); };
+  try {
+    const L = S.skyLayers(sky);
+    assert.ok(L.lines && L.borders && L.names && L.glow && L.spotlight && L.bands.length > 0);
+    assert.equal(S.findReveals(sky).length, 1);
+    assert.equal(reads, 0, "no expression was read");
+  } finally {
+    api.get = orig;
+  }
+  assert.equal(reveal.number, 1);
+});
+
 test("a second reveal of Orion is Reveal 2: Orion", () => {
   const { S, sky, orion } = revealFixture();
   const second = S.createReveal(sky, orion, ["lines"], 50, 25, {});

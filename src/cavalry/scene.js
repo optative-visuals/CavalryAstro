@@ -6,6 +6,9 @@ var AstroScene = (function () {
   var A = AstroAttrs;
   var E = AstroExpression;
   var SKY_KEY = "astroSky", SKY_VERSION = 1;
+  // A layer's part is kept as its user data (the meta its expression carries), so lookups do not parse expressions.
+  // The sky group keeps the record of the Spotlight: its id and the reveal amounts it was built from.
+  var PART_KEY = "astroPart", SPOT_KEY = "astroSpotlight";
   var GLOW_MAG = 2.5, GLOW_SIZE = 3, GLOW_BLUR = 6;
   var PARTS = ["lines", "borders", "names"];
   var NAMES = { camera: "Camera", background: "Sky background", glow: "Star glow", glowLevel: "Star glow opacity",
@@ -111,6 +114,7 @@ var AstroScene = (function () {
   function cameraLayer(groupId, cam) {
     var id = api.create(A.CAMERA_LAYER_TYPE, NAMES.camera);
     setOne(id, A.CAMERA_EXPR_ATTR, E.writeTag("ASTRO_META", { category: "camera" }) + "\n" + E.cameraExpression());
+    tagPart(id, { category: "camera" });
     addInputs(id, A.CAMERA_ARRAY_ATTR, E.CAMERA_INPUTS, cameraValues(cam, ""));
     api.parent(id, groupId);
     return id;
@@ -133,6 +137,7 @@ var AstroScene = (function () {
     for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) values[k] = extra[k];
     addInputs(id, A.SHAPE_ARRAY_ATTR, KIND_INPUTS[kind], values);
     setOne(id, A.SHAPE_EXPR_ATTR, E.layerExpression(ASTRO_SKY_SRC, kind, data, meta, opts));
+    tagPart(id, meta);
     connectCamera(cameraId, id);
     api.parent(id, groupId);
     return id;
@@ -189,12 +194,18 @@ var AstroScene = (function () {
     blurLayer(groupId, glowId, NAMES.glow + " blur", GLOW_BLUR);
   }
 
-  // A JavaScript Utility in groupId: its expression, its inputs (name, default) and their values.
-  function utilityLayer(groupId, name, expr, inputs, values) {
+  // Tags a layer with its part (the meta its expression carries). Lookups read the tag before the expression.
+  function tagPart(id, meta) {
+    if (meta && typeof api.setUserData === "function") api.setUserData(id, PART_KEY, meta);
+  }
+
+  // A JavaScript Utility in groupId: its expression, its inputs (name, default), their values and its part's meta.
+  function utilityLayer(groupId, name, expr, inputs, values, meta) {
     var id = api.create(A.CAMERA_LAYER_TYPE, name);
     setOne(id, A.CAMERA_EXPR_ATTR, expr);
     addInputs(id, A.CAMERA_ARRAY_ATTR, inputs, values || {});
     api.parent(id, groupId);
+    tagPart(id, meta);
     return id;
   }
 
@@ -202,13 +213,15 @@ var AstroScene = (function () {
   // The glow is driven, so applyTheme and setGlow write the level, not the glow's opacity.
   function glowLevelLayer(groupId, glowId, level) {
     var id = utilityLayer(groupId, NAMES.glowLevel, E.glowLevelExpression({ category: "glowLevel" }), E.GLOW_LEVEL_INPUTS,
-      { visible: 100, level: level });
+      { visible: 100, level: level }, { category: "glowLevel" });
     api.connect(id, A.DRIVER_OUTPUT_ATTR, glowId, "opacity", true);
     return id;
   }
 
-  // The meta tag of a sky layer (its expression's ASTRO_META), or null.
+  // The part of a sky layer: its tag, else the meta its expression carries (layers made before tags), or null.
   function metaOf(id) {
+    var tag = userData(id, PART_KEY);
+    if (tag && typeof tag === "object") return tag;
     return E.readTag(readExpr(id, A.SHAPE_EXPR_ATTR) || readExpr(id, A.CAMERA_EXPR_ATTR), "ASTRO_META");
   }
 
@@ -738,7 +751,7 @@ var AstroScene = (function () {
     var theme = themeOf(s), cam = readCamera(s), data = skyData(), cw = compSize(), colours = AstroStyles.starColours(theme);
     function stage(part) {
       var id = utilityLayer(groupId, STAGE_NAMES[part], E.stageExpression(ASTRO_REVEAL_SRC, part, { category: "revealStage", part: part }),
-        E.STAGE_INPUTS, {});
+        E.STAGE_INPUTS, {}, { category: "revealStage", part: part });
       api.connect(amountId, A.CAMERA_ARRAY_ATTR + ".0", id, A.CAMERA_ARRAY_ATTR + ".0", true);
       return id;
     }
@@ -803,7 +816,7 @@ var AstroScene = (function () {
     if (parts.indexOf("title") >= 0) {
       var titleId = stage("title");
       var pos = utilityLayer(groupId, "Reveal title position", E.titlePositionExpression(ASTRO_REVEAL_SRC, { category: "revealTitle" }),
-        E.TITLE_INPUTS, { conRa: c.centre[0], conDec: c.centre[1], compW: cw.width, compH: cw.height });
+        E.TITLE_INPUTS, { conRa: c.centre[0], conDec: c.centre[1], compW: cw.width, compH: cw.height }, { category: "revealTitle" });
       ["titleMode", "corner", "margin", "offsetY"].forEach(function (n) {
         api.connect(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n),
           pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, n), true);
@@ -843,7 +856,7 @@ var AstroScene = (function () {
     var amountId = utilityLayer(groupId, "Reveal amount", E.revealAmountExpression({ category: "revealAmount" }), E.REVEAL_INPUTS, {
       spotlight: pickNumber(o.spotlight, DEFAULT_SPOTLIGHT), titleMode: pickNumber(o.titleMode, 0),
       corner: pickNumber(o.corner, DEFAULT_CORNER), margin: pickNumber(o.margin, DEFAULT_MARGIN), offsetY: pickNumber(o.offsetY, DEFAULT_OFFSET_Y)
-    });
+    }, { category: "revealAmount" });
     api.keyframe(amountId, first, { "array.0": 0 });
     api.keyframe(amountId, first + len, { "array.0": 100 });
     buildMembers(s, groupId, c, chosen, amountId);
@@ -880,7 +893,8 @@ var AstroScene = (function () {
     var L = skyLayers(s), reveals = findReveals(s);
     if (L.spotlight) api.deleteLayer(L.spotlight);
     var spot = utilityLayer(s.groupId, "Spotlight", E.spotlightExpression(ASTRO_REVEAL_SRC, reveals.length, { category: "spotlight" }),
-      E.spotlightInputs(reveals.length), {});
+      E.spotlightInputs(reveals.length), {}, { category: "spotlight" });
+    api.setUserData(s.groupId, SPOT_KEY, { spot: spot, amounts: reveals.map(function (r) { return r.amountId; }) });
     reveals.forEach(function (r, k) {
       api.connect(r.amountId, A.CAMERA_ARRAY_ATTR + ".0", spot, A.CAMERA_ARRAY_ATTR + "." + (2 * k), true);
       api.connect(r.amountId, A.CAMERA_ARRAY_ATTR + ".1", spot, A.CAMERA_ARRAY_ATTR + "." + (2 * k + 1), true);
@@ -893,8 +907,9 @@ var AstroScene = (function () {
   }
 
   // Gives the reveals a number each (oldest first): a duplicate number takes the highest + 1, and the group is renamed.
+  // Returns how many reveals were given a new number.
   function renumber(reveals) {
-    var top = 0, seen = {};
+    var top = 0, seen = {}, renamed = 0;
     reveals.forEach(function (r) { top = Math.max(top, r.number); });
     reveals.forEach(function (r) {
       if (r.number && !seen[r.number]) { seen[r.number] = true; return; }
@@ -903,11 +918,22 @@ var AstroScene = (function () {
       if (!rec) return;
       rec.number = top;
       setRecord(r.groupId, rec);
+      renamed++;
       if (typeof api.rename === "function") { try { api.rename(r.groupId, "Reveal " + top + ": " + rec.name); } catch (e) { /* cosmetic */ } }
     });
+    return renamed;
   }
 
-  // Drops the reveals whose group is gone, renumbers the rest, and rebuilds the Spotlight. Returns how many were dropped.
+  // True when the Spotlight was built from exactly these reveals' amounts, and still exists.
+  function spotlightUpToDate(s, reveals) {
+    var rec = userData(s.groupId, SPOT_KEY), L = skyLayers(s);
+    if (!L.spotlight || !rec || rec.spot !== L.spotlight) return false;
+    return JSON.stringify(rec.amounts) === JSON.stringify(reveals.map(function (r) { return r.amountId; }));
+  }
+
+  // Drops the reveals whose group is gone, renumbers the rest, and rebuilds the Spotlight and the Controls when something
+  // changed (a reveal dropped or renumbered, or the Spotlight not built from these reveals). The panel calls this on every
+  // press, so an unchanged sky is left alone. Returns how many were dropped.
   // A reveal whose group is still there but whose amount is gone is broken: its members and then its group are deleted.
   function prepareReveals(s) {
     var live = api.getChildren(s.groupId), ids = registry(s), kept = [], removed = 0;
@@ -921,10 +947,12 @@ var AstroScene = (function () {
       }
       kept.push(g);
     });
-    api.setUserData(s.groupId, REVEALS_KEY, kept);
-    renumber(findReveals(s));
-    refreshSpotlight(s);
-    syncControls(s);
+    if (removed) api.setUserData(s.groupId, REVEALS_KEY, kept);
+    var reveals = findReveals(s), renamed = renumber(reveals);
+    if (removed || renamed || !spotlightUpToDate(s, reveals)) {
+      refreshSpotlight(s);
+      syncControls(s);
+    }
     return removed;
   }
 
