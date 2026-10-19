@@ -69,7 +69,18 @@ var AstroImagery = (function () {
     };
   }
 
-  // The tiles a frame shows at level L: the tiles under a 17 x 17 grid of frame points, plus their neighbours
+  // The Cavalry pixels of the 17 x 17 grid over a frame (centre at 0,0, y up), edges included.
+  function frameGrid(frameW, frameH) {
+    var pts = [];
+    for (var i = 0; i < GRID; i++) {
+      for (var j = 0; j < GRID; j++) {
+        pts.push([-frameW / 2 + i * frameW / (GRID - 1), -frameH / 2 + j * frameH / (GRID - 1)]);
+      }
+    }
+    return pts;
+  }
+
+  // The tiles a frame shows at level L: the tiles under the frame grid, plus their neighbours
   // (so a tile at a grid gap is still loaded, and the RA seam at 0/360 wraps to the far column).
   function visibleTiles(L, cam, frameW, frameH) {
     var g = LEVELS[L], seen = {}, out = [];
@@ -82,15 +93,11 @@ var AstroImagery = (function () {
       out.push({ row: row, col: c });
     }
     var hits = {};
-    for (var i = 0; i < GRID; i++) {
-      for (var j = 0; j < GRID; j++) {
-        var x = -frameW / 2 + i * frameW / (GRID - 1);
-        var y = -frameH / 2 + j * frameH / (GRID - 1);
-        var radec = AstroSky.unproject(cam, frameW, x, y);
-        var t = tileOf(L, radec[0], radec[1]);
-        hits[t.row + "_" + t.col] = t;
-      }
-    }
+    frameGrid(frameW, frameH).forEach(function (p) {
+      var radec = AstroSky.unproject(cam, frameW, p[0], p[1]);
+      var t = tileOf(L, radec[0], radec[1]);
+      hits[t.row + "_" + t.col] = t;
+    });
     Object.keys(hits).forEach(function (k) {
       var t = hits[k];
       for (var dr = -1; dr <= 1; dr++) for (var dc = -1; dc <= 1; dc++) add(t.row + dr, t.col + dc);
@@ -142,6 +149,7 @@ var AstroImagery = (function () {
     levelOpacity: levelOpacity,
     tileOf: tileOf,
     tileBox: tileBox,
+    frameGrid: frameGrid,
     visibleTiles: visibleTiles,
     planTiles: planTiles
   };

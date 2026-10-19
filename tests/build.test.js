@@ -365,6 +365,18 @@ test("the panel bundle embeds ASTRO_REVEAL_SRC: the sky maths and the reveal mat
   assert.ok(src.indexOf("var AstroReveal = (function") < src.indexOf("var ASTRO_REVEAL_SRC = "));
 });
 
+test("the panel bundle embeds ASTRO_REPROJECT_SRC: the sky, imagery and reprojection maths, which run on their own", () => {
+  const src = buildPanel();
+  assert.ok(src.includes("var ASTRO_REPROJECT_SRC = " + JSON.stringify(buildRuntimeSource("reproject")) + ";"));
+  assert.deepEqual(RUNTIMES.reproject, ["src/core/sky.js", "src/core/imagery.js", "src/core/reproject.js"]);
+  assert.ok(src.includes("var AstroReproject = (function"), "reproject.js is in the core files");
+  assert.ok(src.indexOf("var AstroReproject = (function") < src.indexOf("var ASTRO_REPROJECT_SRC = "));
+  const ctx = {};
+  vm.createContext(ctx);
+  vm.runInContext(buildRuntimeSource("reproject") + ";this.out = AstroReproject.viewFor({ ra: 84, dec: 0, fov: 60, rotation: 0, projection: 0 }, 1920, 1080);", ctx);
+  assert.ok(ctx.out.scale > 0, "viewFor runs inside the bare runtime");
+});
+
 // ---- The sky (Task 7) -------------------------------------------------------------------------------
 const E = require("../src/core/expression.js");
 const SKY_CAM = { ra: 83.8, dec: 0, fov: 60, rotation: 0, projection: 0 };

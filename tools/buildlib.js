@@ -7,7 +7,8 @@ const ROOT = path.resolve(__dirname, "..");
 const RUNTIMES = {};
 RUNTIMES.sky = ["src/core/sky.js", "src/core/stars.js", "src/core/render.js"];
 RUNTIMES.reveal = ["src/core/sky.js", "src/core/reveal.js"];
-const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/imagery.js", "src/core/stars.js",
+RUNTIMES.reproject = ["src/core/sky.js", "src/core/imagery.js", "src/core/reproject.js"];
+const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/imagery.js", "src/core/reproject.js", "src/core/stars.js",
   "src/core/render.js", "src/core/expression.js", "src/core/styles.js", "src/core/stylefiles.js", "src/core/fly.js",
   "src/core/reveal.js", "src/core/controls.js", "src/core/preview.js"];
 const CAVALRY_FILES = ["src/cavalry/attrs.js", "src/cavalry/net.js", "src/cavalry/style.js", "src/cavalry/tips.js",
@@ -49,6 +50,7 @@ function buildPanel(options = {}) {
     ...CORE_FILES.map(read),
     "var ASTRO_SKY_SRC = " + JSON.stringify(buildRuntimeSource("sky")) + ";",
     "var ASTRO_REVEAL_SRC = " + JSON.stringify(buildRuntimeSource("reveal")) + ";",
+    "var ASTRO_REPROJECT_SRC = " + JSON.stringify(buildRuntimeSource("reproject")) + ";",
     ...CAVALRY_FILES.map(read)
   ].join("\n;\n");
 }
