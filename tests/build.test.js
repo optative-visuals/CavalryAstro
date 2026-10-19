@@ -66,14 +66,100 @@ function makeFakeUi() {
   };
 }
 
+// The scene part of the api (Task 7): layers, attributes, parenting, connections, keyframes, user data and
+// the comp. Layers have ids like "javaScriptShape#3"; a connection is [fromId, fromAttr, toId, toAttr].
+// readFromFile serves the committed sky data for the CavalryAstro_assets/sky paths, as Cavalry would.
+const SKY_FILE = /\/CavalryAstro_assets\/sky\/(stars|constellations)\.json$/;
+function addSceneApi(api) {
+  const COMP = "comp#1";
+  const store = {}, names = {}, parents = {}, layers = [], connections = [], keyframes = {}, userData = {}, paints = {};
+  let nextId = 1, selection = [];
+  const ensure = (id) => store[id] || (store[id] = {});
+  const layerType = (id) => String(id).split("#")[0];
+  const readFile = api.readFromFile;
+  Object.assign(api, {
+    getActiveComp: () => COMP,
+    getLayerType: layerType,
+    getNiceName: (id) => names[id] || id,
+    create: (type, name) => {
+      const id = type + "#" + (nextId++);
+      names[id] = name || type;
+      if (type === "javaScript") ensure(id)["array.0"] = 0;
+      if (type === "javaScriptShape") ensure(id)["generator.array.0"] = 0;
+      layers.push(id);
+      return id;
+    },
+    primitive: (kind, name) => api.create("basicShape", name),
+    getCompLayers: () => layers.slice(),
+    parent: (id, parentId) => { parents[id] = parentId; },
+    getParent: (id) => parents[id] || "",
+    getChildren: (parentId) => layers.filter((id) => parents[id] === parentId).reverse(),
+    hasAttribute: (id, attr) => ensure(id)[attr] !== undefined,
+    addDynamic: (id, arr) => {
+      const o = ensure(id);
+      let n = 0;
+      while (o[arr + "." + n] !== undefined) n++;
+      o[arr + "." + n] = 0;
+      return arr + "." + n;
+    },
+    renameAttribute: (id, attr, name) => { names[id + "." + attr] = name; },
+    set: (id, obj) => { Object.keys(obj).forEach((k) => { ensure(id)[k] = JSON.parse(JSON.stringify(obj[k])); }); },
+    get: (id, attr) => {
+      if (id === COMP && attr === "resolution") return { x: 1920, y: 1080 };
+      const k = keyframes[id] && keyframes[id][attr];
+      if (k && Object.keys(k).length) return k[Object.keys(k).map(Number).sort((a, b) => a - b)[0]];
+      return ensure(id)[attr];
+    },
+    keyframe: (id, f, obj) => {
+      Object.keys(obj).forEach((attr) => {
+        keyframes[id] = keyframes[id] || {};
+        keyframes[id][attr] = keyframes[id][attr] || {};
+        keyframes[id][attr][f] = obj[attr];
+      });
+    },
+    getKeyframeTimes: (id, attr) => {
+      const k = keyframes[id] && keyframes[id][attr];
+      return k ? Object.keys(k).map(Number).sort((a, b) => a - b) : [];
+    },
+    connect: (a, b, c, d) => {
+      // Like Cavalry: a layer's filters list appends each connection (filters.0, filters.1, ...).
+      if (d === "filters") d = "filters." + connections.filter((k) => k[2] === c && /^filters\.\d+$/.test(k[3])).length;
+      connections.push([a, b, c, d]);
+    },
+    getInConnection: (id, attr) => {
+      for (let i = connections.length - 1; i >= 0; i--) {
+        const k = connections[i];
+        if (k[2] === id && k[3] === attr) return k[0] + "." + k[1];
+      }
+      return "";
+    },
+    getOutConnections: (id, attr) => connections.filter((k) => k[0] === id && k[1] === attr).map((k) => k[2] + "." + k[3]),
+    setFill: (id, on) => { (paints[id] = paints[id] || {}).fill = !!on; },
+    setStroke: (id, on) => { (paints[id] = paints[id] || {}).stroke = !!on; },
+    select: (id) => { selection = [id]; },
+    getSelection: () => selection.slice(),
+    setUserData: (id, key, value) => { (userData[id] = userData[id] || {})[key] = JSON.parse(JSON.stringify(value)); },
+    getUserDataKey: (id, key) => { const v = (userData[id] || {})[key]; return v === undefined ? null : JSON.parse(JSON.stringify(v)); },
+    hasUserDataKey: (id, key) => !!userData[id] && Object.prototype.hasOwnProperty.call(userData[id], key),
+    readFromFile: (p) => {
+      const m = SKY_FILE.exec(String(p));
+      return m ? fs.readFileSync(path.join(ROOT, "assets", "sky", m[1] + ".json"), "utf8") : readFile(p);
+    },
+    _connections: connections,
+    _store: store,
+    _paints: paints
+  });
+  return api;
+}
+
 // Runs the built panel against the stubs and returns them, as Cavalry would when the script loads.
 function runPanel() {
-  const api = makeFakeApi();
+  const api = addSceneApi(makeFakeApi());
   const ui = makeFakeUi();
   const sandbox = { api: api, ui: ui, console: console };
   const context = vm.createContext(sandbox);
   vm.runInContext(buildPanel(), context, { filename: "CavalryAstro.js" });
-  return { api: api, ui: ui };
+  return { api: api, ui: ui, context: context };
 }
 
 // Every button under `node`, in layout order. Containers keep their content in _layout, layouts in _items.
@@ -120,4 +206,110 @@ test("the panel bundle embeds ASTRO_SKY_SRC", () => {
   const cavalryStart = src.indexOf(fs.readFileSync(path.join(ROOT, CAVALRY_FILES[0]), "utf8"));
   assert.ok(src.indexOf("var AstroExpression") < src.indexOf("var ASTRO_SKY_SRC = "), "after the core files");
   assert.ok(src.indexOf("var ASTRO_SKY_SRC = ") < cavalryStart, "before the cavalry files");
+});
+
+// ---- The sky (Task 7) -------------------------------------------------------------------------------
+const E = require("../src/core/expression.js");
+const SKY_CAM = { ra: 83.8, dec: 0, fov: 60, rotation: 0, projection: 0 };
+
+// A panel run with a sky made in it: the scene, the sky and its layers (by part).
+function skyFixture(theme) {
+  const { api, context } = runPanel();
+  const S = context.AstroScene;
+  const sky = S.createSky("Sky 1", SKY_CAM, theme || "Realistic");
+  return { api: api, S: S, sky: sky, layers: S.skyLayers(sky) };
+}
+
+// The ASTRO_DATA object embedded in a sky layer's expression.
+function embeddedData(api, id) {
+  const expr = String(api.get(id, "generator.expression"));
+  const open = expr.indexOf("var ASTRO_DATA = ") + "var ASTRO_DATA = ".length;
+  return JSON.parse(expr.slice(open, expr.indexOf(";/*ASTRO_DATA_END*/")));
+}
+
+test("createSky makes one group holding a Camera, a background, star bands, a glow, lines, borders and names", () => {
+  const { api, sky, layers } = skyFixture();
+  assert.equal(api.getLayerType(sky.groupId), "group");
+  assert.equal(api.getNiceName(sky.groupId), "Sky 1");
+  assert.equal(api.getLayerType(sky.cameraId), "javaScript");
+  assert.equal(api.getNiceName(sky.cameraId), "Camera");
+  assert.ok(layers.background, "a background");
+  assert.ok(layers.bands.length >= 5, "at least five star bands");
+  ["glow", "lines", "borders", "names"].forEach((k) => assert.ok(layers[k], k));
+  // Camera, background, the bands, the glow and its blur filter, lines, borders, names.
+  assert.equal(api.getChildren(sky.groupId).length, layers.bands.length + 7);
+});
+
+test("the sky stacks from the bottom: camera, background, borders, lines, glow, stars, names", () => {
+  const { api, sky, layers } = skyFixture();
+  const bottomUp = api.getChildren(sky.groupId).slice().reverse().map((id) => api.getNiceName(id));
+  const bands = layers.bands.map((id) => api.getNiceName(id));
+  const expected = ["Camera", "Sky background", "Constellation borders", "Constellation lines", "Star glow", "Star glow blur"]
+    .concat(bands, ["Constellation names"]);
+  assert.deepEqual(bottomUp, expected);
+});
+
+test("createSky selects the sky group", () => {
+  const { api, sky } = skyFixture();
+  assert.deepEqual(api.getSelection(), [sky.groupId]);
+});
+
+test("every layer that draws the sky takes its camera inputs from the Camera utility", () => {
+  const { api, sky, layers } = skyFixture();
+  layers.bands.concat([layers.glow, layers.lines, layers.borders, layers.names]).forEach((id) => {
+    for (let i = 0; i < 5; i++) {
+      assert.equal(api.getInConnection(id, "generator.array." + i), sky.cameraId + ".array." + i, api.getNiceName(id) + " input " + i);
+    }
+  });
+});
+
+test("the borders and names start hidden, the lines do not", () => {
+  const { api, layers } = skyFixture();
+  assert.equal(api.get(layers.borders, "hidden"), true);
+  assert.equal(api.get(layers.names, "hidden"), true);
+  assert.notEqual(api.get(layers.lines, "hidden"), true);
+});
+
+test("findSkies finds the sky by its user data", () => {
+  const { S, sky } = skyFixture();
+  const found = S.findSkies();
+  assert.equal(found.length, 1);
+  assert.equal(found[0].groupId, sky.groupId);
+  assert.equal(found[0].cameraId, sky.cameraId);
+  assert.equal(found[0].name, "Sky 1");
+});
+
+test("setDarkness sets the darkness input of every star layer", () => {
+  const { api, S, sky, layers } = skyFixture();
+  S.setDarkness(sky, 0);
+  const idx = E.inputIndex(E.STAR_INPUTS, "darkness");
+  layers.bands.concat([layers.glow]).forEach((id) => {
+    assert.equal(api.get(id, "generator.array." + idx), 0, api.getNiceName(id));
+  });
+});
+
+test("applyTheme with Mono makes every band the same colour", () => {
+  const { api, S, sky, layers } = skyFixture();
+  S.applyTheme(sky, "Mono");
+  const fills = new Set(layers.bands.map((id) => api.get(id, "material.materialColor")));
+  assert.equal(fills.size, 1);
+});
+
+test("applyTheme leaves an animated lines colour alone and counts it as skipped", () => {
+  const { api, S, sky, layers } = skyFixture();
+  api.keyframe(layers.lines, 0, { "stroke.strokeColor": "#ff0000" });
+  const r = S.applyTheme(sky, "Mono");
+  assert.equal(api.get(layers.lines, "stroke.strokeColor"), "#ff0000");
+  assert.ok(r.skipped >= 1, "skipped counts the animated colour");
+  assert.ok(r.changed > 0, "the rest of the sky is changed");
+});
+
+test("each band embeds only its own stars, and the glow embeds the stars brighter than magnitude 2.5", () => {
+  const { api, layers } = skyFixture();
+  const rows = require("../assets/sky/stars.json").rows;
+  const counted = layers.bands.reduce((n, id) => n + embeddedData(api, id).mag.length, 0);
+  assert.equal(counted, rows.length, "every star is in exactly one band");
+  const glow = embeddedData(api, layers.glow);
+  assert.equal(glow.mag.length, rows.filter((r) => r[2] < 2.5).length);
+  assert.ok(glow.mag.every((m) => m < 2.5));
 });
