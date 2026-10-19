@@ -87,12 +87,13 @@ test("dragZoom zooms in when the mouse moves up and keeps the press point still"
   assert.ok(S.angularDistance(before[0], before[1], after[0], after[1]) < 0.01);
 });
 
-test("frameCamera is the view's camera at 0.6 of its fov, and the green frame is 0.6 of the width", () => {
+test("frameCamera is the exact camera of the green frame: fov 4 atan(0.6 tan(fov/4)), so 62.52 at fov 100", () => {
   const v = { ra: 83.8, dec: 10, fov: 100 };
   const cam = P.frameCamera(v);
   assert.equal(cam.ra, 83.8);
   assert.equal(cam.dec, 10);
-  assert.ok(Math.abs(cam.fov - 60) < 1e-9);
+  assert.ok(Math.abs(cam.fov - 62.523) < 0.001, "fov " + cam.fov);
+  assert.ok(Math.abs(P.frameCamera({ ra: 0, dec: 0, fov: 180 }).fov - 123.9) < 0.1);
   const r = P.frameRect(W, H, 16 / 9);
   assert.ok(Math.abs(r.w - 0.6 * W) < 1e-9);
   assert.ok(Math.abs(r.x + r.w / 2 - W / 2) < 1e-9, "centred");
@@ -101,13 +102,27 @@ test("frameCamera is the view's camera at 0.6 of its fov, and the green frame is
 
 test("cameraRect outlines a centred camera as a box around the middle, and is null when off the view", () => {
   const v = { ra: 83.8, dec: 0, fov: 100 };
-  const rect = P.cameraRect(v, { ra: 83.8, dec: 0, fov: 30 }, W, H);
+  const rect = P.cameraRect(v, { ra: 83.8, dec: 0, fov: 30 }, W, H, 16 / 9);
   assert.equal(rect.length, 4);
   const [x0, y0, x1, y1] = rect;
   assert.ok(x0 < x1 && y0 < y1, "a box");
   assert.ok(Math.abs((x0 + x1) / 2 - W / 2) < 1e-6 && Math.abs((y0 + y1) / 2 - H / 2) < 1e-6, "centred");
-  assert.equal(P.cameraRect(v, { ra: 263.8, dec: 0, fov: 30 }, W, H), null, "a camera on the far side is off the view");
+  assert.equal(P.cameraRect(v, { ra: 263.8, dec: 0, fov: 30 }, W, H, 16 / 9), null, "a camera on the far side is off the view");
 });
+
+// The green frame and the camera outline must agree: the camera frameCamera names, drawn in the same view,
+// lands on the frame to within a pixel (for the frame's own aspect, 16:9 and square).
+[[30, 640, 360, 16 / 9], [100, 640, 360, 16 / 9], [180, 640, 360, 16 / 9], [100, 400, 400, 1], [30, 400, 400, 1], [180, 400, 400, 1]]
+  .forEach(([fov, w, h, aspect]) => {
+    test("the camera outline matches the green frame within 1 px at fov " + fov + ", aspect " + aspect.toFixed(2), () => {
+      const v = { ra: 83.8, dec: 0, fov: fov };
+      const r = P.cameraRect(v, P.frameCamera(v), w, h, aspect);
+      const f = P.frameRect(w, h, aspect);
+      assert.ok(r, "the camera is on the view");
+      assert.ok(Math.abs(r[0] - f.x) < 1 && Math.abs(r[1] - f.y) < 1, "top left " + r + " vs " + JSON.stringify(f));
+      assert.ok(Math.abs(r[2] - (f.x + f.w)) < 1 && Math.abs(r[3] - (f.y + f.h)) < 1, "bottom right " + r);
+    });
+  });
 
 test("hitDot returns the nearest point within the radius, or -1", () => {
   const pts = [[10, 10], [100, 100], [103, 100]];
@@ -120,6 +135,29 @@ test("dashes covers the outline of a rectangle with segments", () => {
   const segs = P.dashes({ x: 0, y: 0, w: 40, h: 20 }, 4, 3);
   assert.ok(segs.length > 0);
   segs.forEach((s) => assert.equal(s.length, 4));
+});
+
+test("the panel with a square comp draws a square green frame, and the frame matches the camera outline", () => {
+  const ctx = panelContext();
+  const panel = ctx.AstroPreviewPanel.create({});
+  panel.setSky({ stars: STARS, constellations: CONS, theme: "Realistic" });
+  panel.setCompSize(1080, 1080);
+  panel.setWidth(400);
+  const draw = panel.widget._items[1];
+  assert.equal(draw._size[1], 400, "the Draw takes the comp's shape");
+  panel.setCurrent(P.frameCamera(panel.view()));
+  panel.redraw();
+  // The frame is the stroked path of width 2; its corners are the first four points.
+  const frame = draw._paths.find((p) => p.paint.stroke && p.paint.strokeWidth === 2).path.cmds.filter((c) => c[0] !== "close");
+  const xs = frame.map((c) => c[1]), ys = frame.map((c) => c[2]);
+  const fw = Math.max(...xs) - Math.min(...xs), fh = Math.max(...ys) - Math.min(...ys);
+  assert.ok(Math.abs(fw - fh) < 1e-6, "square: " + fw + " x " + fh);
+  assert.ok(Math.abs(fw - 0.6 * 400) < 1e-6);
+  // The dashed camera outline (the frame camera) sits on the frame too.
+  const dashes = draw._paths.find((p) => p.paint.strokeWidth === 1.2).path.cmds.filter((c) => c[0] === "moveTo");
+  assert.ok(dashes.length > 0);
+  const minX = Math.min(...dashes.map((c) => c[1])), maxX = Math.max(...dashes.map((c) => c[1]));
+  assert.ok(Math.abs(minX - (400 - fw) / 2) < 1 && Math.abs(maxX - (400 + fw) / 2) < 1, "outline spans the frame");
 });
 
 test("hitConstellation at a projected Betelgeuse is Orion", () => {

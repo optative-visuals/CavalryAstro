@@ -14,6 +14,8 @@ var AstroPreviewPanel = (function () {
   var STAR_LIMIT = 7, STAR_SIZE = 0.7, STAR_MIN_RADIUS = 0.6;
   // Constellation names show once the view is narrower than this many degrees.
   var NAME_FOV = 90;
+  // The comp's size until the panel is told otherwise: the preview is shaped like it.
+  var DEFAULT_COMP_W = 1920, DEFAULT_COMP_H = 1080;
 
   function create(opts) {
     opts = opts || {};
@@ -26,7 +28,7 @@ var AstroPreviewPanel = (function () {
 
     var defaultColours = AstroStyles.previewColors(AstroStyles.find("Realistic", []));
     var state = {
-      view: AstroPreview.defaultView(), w: 320, h: 180, sized: false,
+      view: AstroPreview.defaultView(), w: 320, h: 180, sized: false, comp: { w: DEFAULT_COMP_W, h: DEFAULT_COMP_H },
       sky: null, colours: defaultColours, results: [], resultPts: [], current: null,
       onPick: typeof opts.onPick === "function" ? opts.onPick : null, stats: { stars: 0, lines: 0, names: 0 }
     };
@@ -118,7 +120,7 @@ var AstroPreviewPanel = (function () {
     }
 
     function drawCamera() {
-      var r = AstroPreview.cameraRect(state.view, state.current, state.w, state.h);
+      var r = AstroPreview.cameraRect(state.view, state.current, state.w, state.h, state.comp.w / state.comp.h);
       if (!r) return;
       var segs = AstroPreview.dashes({ x: r[0], y: r[1], w: r[2] - r[0], h: r[3] - r[1] }, 4, 3), dash = new cavalry.Path();
       segs.forEach(function (sg) { dash.moveTo(sg[0], Y(sg[1])); dash.lineTo(sg[2], Y(sg[3])); });
@@ -151,7 +153,7 @@ var AstroPreviewPanel = (function () {
         if (state.view.fov < NAME_FOV) drawNames(proj, out);
         drawResults(proj, out);
       }
-      var f = AstroPreview.frameRect(state.w, state.h, AstroPreview.COMP_ASPECT);
+      var f = AstroPreview.frameRect(state.w, state.h, state.comp.w / state.comp.h);
       draw.addPath(rectPath(f), { color: state.colours.frame, stroke: true, strokeWidth: 2 });
       if (state.current) drawCamera();
       drawOverlay();
@@ -229,7 +231,7 @@ var AstroPreviewPanel = (function () {
       px = Math.round(px);
       if (!(px >= 16)) return; // not laid out yet: keep the current size
       px = Math.max(px, MIN_WIDTH);
-      var h = Math.round(px * 9 / 16);
+      var h = Math.round(px * state.comp.h / state.comp.w);
       if (state.sized && Math.abs(px - state.w) < 2) return;
       state.w = px; state.h = h; state.sized = true;
       draw.setSize(px, h);
@@ -242,6 +244,13 @@ var AstroPreviewPanel = (function () {
     return {
       widget: layout,
       setWidth: setWidth,
+      // The comp's real size: the Draw takes its shape, and the green frame and camera outline their aspect.
+      setCompSize: function (w, h) {
+        if (!(w > 0 && h > 0)) return;
+        state.comp = { w: w, h: h };
+        state.sized = false;
+        setWidth(state.w);
+      },
       setView: function (v) {
         state.view = { ra: AstroSky.wrapRa(v.ra), dec: Math.max(-90, Math.min(90, v.dec)), fov: Math.max(5, Math.min(180, v.fov)) };
         changed();

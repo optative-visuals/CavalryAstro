@@ -10,8 +10,8 @@ var AstroPreview = (function () {
   // The green frame's width as a share of the preview's width.
   var FRAME_FRACTION = 0.6;
   var MIN_FOV = 5, MAX_FOV = 180, DEFAULT_FOV = 100, DEFAULT_RA = 84, DEFAULT_DEC = 0;
-  // The frame and the camera outline are drawn at the comp's 16:9 aspect.
-  var COMP_ASPECT = 16 / 9, CAMERA_WIDTH = 1920;
+  // Reference width for the camera outline's corners: a pixel scale only, the comp's size comes in as an aspect.
+  var REF_WIDTH = 1920;
   // Dragging near the pole: cos(dec) never drops below this, so the RA step stays finite.
   var COS_FLOOR = 1e-3;
   // A middle-drag doubles or halves the fov every ZOOM_DRAG_PX pixels.
@@ -75,9 +75,10 @@ var AstroPreview = (function () {
     return zoomAt(startView, Math.pow(2, (startY - y) / ZOOM_DRAG_PX), startX, startY, w, h);
   }
 
-  // The camera the green frame stands for: the view's own centre, at FRAME_FRACTION of its fov.
+  // The camera the green frame stands for, exactly: the same centre, and a horizontal fov whose half-width on the
+  // stereographic plane is FRAME_FRACTION of the view's, so 4 atan(FRAME_FRACTION tan(fov/4)) (degrees).
   function frameCamera(v) {
-    return { ra: v.ra, dec: v.dec, fov: v.fov * FRAME_FRACTION };
+    return { ra: v.ra, dec: v.dec, fov: 4 * Math.atan(FRAME_FRACTION * Math.tan(v.fov * DEG / 4)) / DEG };
   }
 
   // The green frame in view pixels: FRAME_FRACTION of the width, centred, at the comp's aspect (and no taller
@@ -88,15 +89,16 @@ var AstroPreview = (function () {
     return { x: (w - fw) / 2, y: (h - fh) / 2, w: fw, h: fh };
   }
 
-  // The dashed outline of a camera ({ra, dec, fov, rotation}): the bounding box of its frame's corners in the
-  // view, as [x0, y0, x1, y1]. Null when a corner is beyond the projector's limit (the camera is off the view).
-  function cameraRect(v, cam, w, h) {
+  // The dashed outline of a camera ({ra, dec, fov, rotation}) at the comp's aspect (width / height): the bounding
+  // box of its frame's corners in the view, as [x0, y0, x1, y1]. Null when a corner is beyond the projector's
+  // limit (the camera is off the view).
+  function cameraRect(v, cam, w, h, aspect) {
     var cc = { ra: cam.ra, dec: cam.dec, fov: cam.fov, rotation: cam.rotation || 0, projection: 0 };
-    var halfW = CAMERA_WIDTH / 2, halfH = halfW / COMP_ASPECT;
+    var halfW = REF_WIDTH / 2, halfH = halfW / aspect;
     var corners = [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]];
     var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (var i = 0; i < corners.length; i++) {
-      var sky = AstroSky.unproject(cc, CAMERA_WIDTH, corners[i][0], corners[i][1]);
+      var sky = AstroSky.unproject(cc, REF_WIDTH, corners[i][0], corners[i][1]);
       var p = toPx(v, sky[0], sky[1], w, h);
       if (!p) return null;
       x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]);
@@ -160,7 +162,7 @@ var AstroPreview = (function () {
   }
 
   return {
-    FRAME_FRACTION: FRAME_FRACTION, ZOOM_DRAG_PX: ZOOM_DRAG_PX, COMP_ASPECT: COMP_ASPECT,
+    FRAME_FRACTION: FRAME_FRACTION, ZOOM_DRAG_PX: ZOOM_DRAG_PX,
     defaultView: defaultView, toPx: toPx, pixelsPerDegree: pixelsPerDegree,
     pan: pan, zoomAt: zoomAt, dragZoom: dragZoom, frameCamera: frameCamera, frameRect: frameRect,
     cameraRect: cameraRect, hitDot: hitDot, hitConstellation: hitConstellation, dashes: dashes,
