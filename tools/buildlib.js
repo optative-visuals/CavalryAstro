@@ -7,7 +7,7 @@ const ROOT = path.resolve(__dirname, "..");
 const RUNTIMES = {};
 RUNTIMES.sky = ["src/core/sky.js", "src/core/stars.js", "src/core/render.js"];
 RUNTIMES.reveal = ["src/core/sky.js", "src/core/reveal.js"];
-const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/stars.js",
+const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/imagery.js", "src/core/stars.js",
   "src/core/render.js", "src/core/expression.js", "src/core/styles.js", "src/core/stylefiles.js", "src/core/fly.js",
   "src/core/reveal.js", "src/core/controls.js", "src/core/preview.js"];
 const CAVALRY_FILES = ["src/cavalry/attrs.js", "src/cavalry/net.js", "src/cavalry/style.js", "src/cavalry/tips.js",
