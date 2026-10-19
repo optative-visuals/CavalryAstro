@@ -107,8 +107,10 @@ If a sky's Controls fall out of date, press **Refresh controls** on the Sky tab 
 A style is a theme: the colours and widths a sky uses. The built-in themes are **Realistic**, **Mono**,
 **Blueprint**, **Vintage chart** and **Neon**. **Realistic** is the default.
 
-- **Theme** and **Apply to sky:** pick a theme, then press **Apply to sky** to give the picked sky its
-  colours. Colours that you have keyed or connected in Cavalry are left alone.
+- **Style** (on the Sky tab) and **Apply to sky:** the style picker holds the built-in and saved styles. Press
+  **Apply to sky** to give the picked sky the picked style's colours. Colours that you have keyed or
+  connected in Cavalry are left alone. The picked style is also the one a new sky uses, so pick it before
+  you press **Create sky here**.
 - **Save as style:** saves the picked sky's current colours as a new theme. Type a name for it first, in
   **Name for a new style**. The theme is saved as a file in the **Sky styles** folder.
 - **Refresh:** reads the **Sky styles** folder again, so a theme you have dropped into it joins the list.

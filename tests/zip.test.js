@@ -72,6 +72,7 @@ test("the release zip holds the plugin, its data and the docs, and no private or
       "INSTALL.txt",
       "LICENSE.txt",
       "README.md",
+      "THIRD-PARTY-NOTICES.md",
       "docs/guide.md"
     ]);
   } finally {

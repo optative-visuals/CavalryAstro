@@ -43,13 +43,16 @@ The [guide](docs/guide.md) covers each tab, the Controls, the themes and the set
 
 - [Cavalry Geo](https://github.com/optative-visuals/CavalryGeo) by optative-visuals, the sister project
   this plugin was seeded from: its build tooling, panel kit, settings and style code.
-- Star data: [HYG Database](https://github.com/astronexus/HYG-Database), CC BY-SA 4.0. Keep the
-  attribution if you share the star data.
+- Star data: [HYG Database](https://github.com/astronexus/HYG-Database) by astronexus, CC BY-SA 4.0.
 - Constellation lines, borders and names: [d3-celestial](https://github.com/ofrohn/d3-celestial),
   BSD-3-Clause.
+
+The full attributions, the d3-celestial licence text and the changes made to the HYG data are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
 ## Licence
 
 CavalryAstro is free software under the GNU General Public License, version 3 or (at your option) any
 later version (GPL-3.0-or-later). See [LICENSE.txt](LICENSE.txt). The bundled star data keeps its own
-licence (CC BY-SA 4.0), and the constellation data keeps its own (BSD-3-Clause).
+licence (CC BY-SA 4.0), and the constellation data keeps its own (BSD-3-Clause); see
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
