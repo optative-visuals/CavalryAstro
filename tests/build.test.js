@@ -72,8 +72,10 @@ function makeFakeUi() {
 const SKY_FILE = /\/CavalryAstro_assets\/sky\/(stars|constellations)\.json$/;
 function addSceneApi(api) {
   const COMP = "comp#1";
-  const store = {}, names = {}, parents = {}, layers = [], connections = [], keyframes = {}, userData = {}, paints = {};
-  let nextId = 1, selection = [];
+  // The comp runs frames 0-100 at 25 fps. Setting endFrame moves frameRange's end, as Cavalry does.
+  const store = { [COMP]: { frameRange: { x: 0, y: 100 }, endFrame: 100, playbackEnd: 100, fps: 25 } };
+  const names = {}, parents = {}, layers = [], connections = [], keyframes = {}, userData = {}, paints = {}, outFrames = {};
+  let nextId = 1, selection = [], frame = 0;
   const ensure = (id) => store[id] || (store[id] = {});
   const layerType = (id) => String(id).split("#")[0];
   const readFile = api.readFromFile;
@@ -103,13 +105,27 @@ function addSceneApi(api) {
       return arr + "." + n;
     },
     renameAttribute: (id, attr, name) => { names[id + "." + attr] = name; },
-    set: (id, obj) => { Object.keys(obj).forEach((k) => { ensure(id)[k] = JSON.parse(JSON.stringify(obj[k])); }); },
+    set: (id, obj) => {
+      Object.keys(obj).forEach((k) => { ensure(id)[k] = JSON.parse(JSON.stringify(obj[k])); });
+      if (id === COMP && obj.endFrame !== undefined) ensure(id).frameRange = { x: 0, y: obj.endFrame };
+    },
     get: (id, attr) => {
       if (id === COMP && attr === "resolution") return { x: 1920, y: 1080 };
+      // A keyed attribute holds its last key at or before the playhead (the first key before any).
       const k = keyframes[id] && keyframes[id][attr];
-      if (k && Object.keys(k).length) return k[Object.keys(k).map(Number).sort((a, b) => a - b)[0]];
+      if (k && Object.keys(k).length) {
+        const times = Object.keys(k).map(Number).sort((a, b) => a - b);
+        let at = times[0];
+        times.forEach((t) => { if (t <= frame) at = t; });
+        return k[at];
+      }
       return ensure(id)[attr];
     },
+    deleteKeyframe: (id, attr, f) => { if (keyframes[id] && keyframes[id][attr]) delete keyframes[id][attr][f]; },
+    getFrame: () => frame,
+    setFrame: (f) => { frame = f; },
+    getOutFrame: (id) => outFrames[id],
+    setOutFrame: (id, f) => { outFrames[id] = f; },
     keyframe: (id, f, obj) => {
       Object.keys(obj).forEach((attr) => {
         keyframes[id] = keyframes[id] || {};
@@ -217,7 +233,7 @@ function skyFixture(theme) {
   const { api, context } = runPanel();
   const S = context.AstroScene;
   const sky = S.createSky("Sky 1", SKY_CAM, theme || "Realistic");
-  return { api: api, S: S, sky: sky, layers: S.skyLayers(sky) };
+  return { api: api, S: S, sky: sky, layers: S.skyLayers(sky), context: context };
 }
 
 // The ASTRO_DATA object embedded in a sky layer's expression.
@@ -326,4 +342,101 @@ test("each band embeds only its own stars, and the glow embeds the stars brighte
   const glow = embeddedData(api, layers.glow);
   assert.equal(glow.mag.length, rows.filter((r) => r[2] < 2.5).length);
   assert.ok(glow.mag.every((m) => m < 2.5));
+});
+
+// ---- Camera moves (Task 8) --------------------------------------------------------------------------
+// The constellation index of a name in the bundled catalogue (the scene's own index).
+function consIndex(context, name) {
+  const cons = context.AstroCatalog.decodeConstellations(require("../assets/sky/constellations.json"));
+  return context.AstroCatalog.findConstellation(cons, name);
+}
+
+test("flying to Orion from frame 0 to 100 keys frames 0 to 100 and ends on Orion's centre", () => {
+  const { api, S, sky } = skyFixture();
+  const orion = S.flyTarget("constellation", consIndex(skyFixture().context, "Orion"));
+  assert.equal(S.lastFlight(sky), null, "no flight yet");
+  S.flyTo(sky, orion, { start: 0, end: 100, easing: "smooth", arc: "normal" });
+  assert.deepEqual(api.getKeyframeTimes(sky.cameraId, "array.0"), Array.from({ length: 101 }, (_, i) => i));
+  const end = S.readCameraAt(sky, 100);
+  assert.ok(Math.abs(end.ra - orion.ra) < 1e-9 && Math.abs(end.dec - orion.dec) < 1e-9, "ends on Orion's centre");
+  assert.equal(end.fov, orion.fov);
+  assert.ok(end.fov >= 8 && end.fov <= 120, "fov in [8, 120]");
+});
+
+test("lastFlight returns the record of the latest flight", () => {
+  const { S, sky, context } = skyFixture();
+  S.flyTo(sky, S.flyTarget("constellation", consIndex(context, "Orion")), { start: 0, end: 50, easing: "smooth", arc: "normal" });
+  S.flyTo(sky, S.flyTarget("constellation", consIndex(context, "Andromeda")), { start: 60, end: 100, easing: "gentle", arc: "low" });
+  const last = S.lastFlight(sky);
+  assert.equal(last.target.label, "Andromeda");
+  assert.equal(last.start, 60);
+  assert.equal(last.easing, "gentle");
+});
+
+test("a flight from Andromeda to Pisces keys no two consecutive centreRa values more than 10 apart", () => {
+  const { S, sky, context } = skyFixture();
+  S.jumpCamera(sky, S.flyTarget("constellation", consIndex(context, "Andromeda")));
+  const pisces = S.flyTarget("constellation", consIndex(context, "Psc"));
+  S.flyTo(sky, pisces, { start: 0, end: 100, easing: "smooth", arc: "normal" });
+  const ras = [];
+  for (let f = 0; f <= 100; f++) ras.push(S.readCameraAt(sky, f).ra);
+  for (let f = 1; f < ras.length; f++) assert.ok(Math.abs(ras[f] - ras[f - 1]) < 10, "frame " + f);
+  assert.ok(Math.abs(ras[0] - 10) < 10, "the first key is near Andromeda's RA");
+});
+
+test("recording a flight over the same frames replaces its record and keeps its place in the order", () => {
+  const { api, S, sky, context } = skyFixture();
+  const rec = (start, end, name) => ({ start, end, from: { ra: 0, dec: 0, fov: 60 }, to: { ra: 1, dec: 1, fov: 20 },
+    target: { kind: "constellation", index: 0, label: name, ra: 1, dec: 1, fov: 20 }, easing: "smooth", arc: "normal" });
+  S.recordFlight(sky, rec(0, 50, "first"));
+  S.recordFlight(sky, rec(60, 100, "second"));
+  S.recordFlight(sky, rec(0, 50, "first again"));
+  const stored = api.getUserDataKey(sky.cameraId, "astroFlights");
+  assert.deepEqual(stored.map((r) => r.target.label), ["first again", "second"]);
+  assert.equal(S.lastFlight(sky).target.label, "second");
+});
+
+test("flightAt finds the latest flight covering a frame, and none outside every flight", () => {
+  const { S, sky, context } = skyFixture();
+  S.flyTo(sky, S.flyTarget("constellation", consIndex(context, "Orion")), { start: 0, end: 100, easing: "smooth", arc: "normal" });
+  assert.equal(S.flightAt(sky, 50).target.label, "Orion");
+  assert.equal(S.flightAt(sky, 150), null);
+});
+
+test("extendComp lengthens the comp to the new end plus 3 seconds and moves the layers that reached the old end", () => {
+  const { api, S, sky, layers } = skyFixture();
+  const comp = api.getActiveComp();
+  api.setOutFrame(layers.lines, 100);
+  api.setOutFrame(layers.names, 50);
+  S.extendComp(250);
+  assert.equal(api.get(comp, "endFrame"), 250 + 3 * 25, "end = new end + 3 s at 25 fps");
+  assert.equal(api.get(comp, "playbackEnd"), 250 + 3 * 25, "the play range followed the old end");
+  assert.equal(api.getOutFrame(layers.lines), 250 + 3 * 25 + 1, "a layer that reached the old end follows");
+  assert.equal(api.getOutFrame(layers.names), 50, "a layer trimmed earlier is left alone");
+});
+
+test("the fly target frames a constellation on its border and a star at fov 20", () => {
+  const { S, context } = skyFixture();
+  const cons = context.AstroCatalog.decodeConstellations(require("../assets/sky/constellations.json"));
+  const ser = cons[consIndex(context, "Ser")];
+  let far = 0;
+  ser.border.forEach((ring) => ring.forEach((p) => {
+    far = Math.max(far, context.AstroSky.angularDistance(ser.centre[0], ser.centre[1], p[0], p[1]));
+  }));
+  const target = S.flyTarget("constellation", consIndex(context, "Ser"));
+  assert.ok(Math.abs(target.fov - Math.min(120, Math.max(8, far * 2 * 1.4))) < 1e-9, "2 x 1.4 x the farthest border point");
+  assert.equal(target.ra, ser.centre[0]);
+  assert.equal(target.dec, ser.centre[1]);
+  const star = S.flyTarget("star", 0);
+  assert.equal(star.fov, 20);
+  assert.equal(star.ra, require("../assets/sky/stars.json").rows[0][0]);
+});
+
+test("jumpCamera sets the camera's centre and field of view", () => {
+  const { S, sky } = skyFixture();
+  S.jumpCamera(sky, { ra: 10, dec: 37, fov: 30 });
+  const cam = S.readCamera(sky);
+  assert.equal(cam.ra, 10);
+  assert.equal(cam.dec, 37);
+  assert.equal(cam.fov, 30);
 });

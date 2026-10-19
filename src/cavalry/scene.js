@@ -333,6 +333,176 @@ var AstroScene = (function () {
     return tally;
   }
 
+  // ---- Camera moves ---------------------------------------------------------------------------------
+  // A flight keys the Camera's centreRa, centreDec and fov for each frame of its range. Its record (the
+  // astroFlights user data on the Camera) lets a later Update flight rebuild the same keys. Ported from Cavalry Geo.
+  var FLIGHTS_KEY = "astroFlights", EXTEND_PAD_SECONDS = 3, DEFAULT_FPS = 25;
+  var FRAME_PAD = 1.4, FRAMING_FOV = [8, 120], STAR_FOV = 20;
+  var FLIGHT_ATTRS = [0, 1, 2].map(function (i) { return A.CAMERA_ARRAY_ATTR + "." + i; });
+
+  // Runs fn with the playhead on frame, then puts the playhead back.
+  function atFrame(frame, fn) {
+    var back = api.getFrame();
+    try { api.setFrame(frame); return fn(); } finally { api.setFrame(back); }
+  }
+
+  function compFrameRange() {
+    var v = api.get(api.getActiveComp(), A.COMP_FRAME_RANGE_ATTR);
+    if (Array.isArray(v)) return { start: Number(v[0]), end: Number(v[1]) };
+    return { start: Number(v.x), end: Number(v.y) };
+  }
+
+  function compFps() {
+    var f = Number(api.get(api.getActiveComp(), A.COMP_FPS_ATTR));
+    return isFinite(f) && f > 0 ? f : DEFAULT_FPS;
+  }
+
+  // Sets the camera's centre and field of view at once, without keys.
+  function jumpCamera(s, target) {
+    setCamera(s, { ra: target.ra, dec: target.dec, fov: target.fov });
+  }
+
+  // The fov that holds a constellation's border: twice its farthest border point from its centre, times 1.4.
+  // Some centres lie outside their own border, so the distance is taken from the centre to every ring point.
+  function constellationFov(c) {
+    var far = 0;
+    (c.border || []).forEach(function (ring) {
+      ring.forEach(function (p) { far = Math.max(far, AstroSky.angularDistance(c.centre[0], c.centre[1], p[0], p[1])); });
+    });
+    return clamp(far * 2 * FRAME_PAD, FRAMING_FOV[0], FRAMING_FOV[1]);
+  }
+
+  // A fly target: a constellation (index into the catalogue) or a star (index into the star list).
+  // Returns { kind, index, label, ra, dec, fov }.
+  function flyTarget(kind, index) {
+    var data = skyData();
+    if (kind === "constellation") {
+      var c = data.cons[index];
+      if (!c) throw new Error("No constellation at index " + index);
+      return { kind: kind, index: index, label: c.name, ra: c.centre[0], dec: c.centre[1], fov: constellationFov(c) };
+    }
+    if (kind === "star") {
+      var st = data.stars;
+      if (!(index >= 0 && index < st.count)) throw new Error("No star at index " + index);
+      return { kind: kind, index: index, label: st.name[index] || st.bayer[index] || "Star", ra: st.ra[index], dec: st.dec[index], fov: STAR_FOV };
+    }
+    throw new Error("Unknown fly target: " + kind);
+  }
+
+  // Keys the camera along points (one per frame from startFrame, as AstroFly.path gives them). RA is unwrapped
+  // so that no two consecutive keys sit 360 apart: the first key is nearest the camera's centreRa.
+  // Keys already in the range are replaced. Returns { start, end }.
+  function flyCamera(s, points, startFrame) {
+    var end = startFrame + points.length - 1, prevRa = readCamera(s).ra;
+    if (!isFinite(prevRa)) prevRa = points[0].ra;
+    FLIGHT_ATTRS.forEach(function (attr) {
+      (api.getKeyframeTimes(s.cameraId, attr) || []).forEach(function (f) {
+        if (f >= startFrame && f <= end) api.deleteKeyframe(s.cameraId, attr, f);
+      });
+    });
+    points.forEach(function (p, k) {
+      prevRa = AstroSky.nearestRa(p.ra, prevRa);
+      var o = {};
+      o[FLIGHT_ATTRS[0]] = prevRa; o[FLIGHT_ATTRS[1]] = p.dec; o[FLIGHT_ATTRS[2]] = p.fov;
+      api.keyframe(s.cameraId, startFrame + k, o);
+    });
+    return { start: startFrame, end: end };
+  }
+
+  // Flies the camera from where it is at start to target, over frames start to end (end - start steps).
+  // opts: { start, end, easing, arc } with AstroFly ids (defaults: smooth, normal). Keys the frames, and
+  // remembers the flight. Returns { start, end }.
+  function flyTo(s, target, opts) {
+    var start = opts.start, end = opts.end, easing = opts.easing || "smooth", arc = opts.arc || "normal";
+    return atFrame(start, function () {
+      var b = readCamera(s), from = { ra: b.ra, dec: b.dec, fov: b.fov };
+      var to = { ra: target.ra, dec: target.dec, fov: target.fov };
+      var range = flyCamera(s, AstroFly.path(from, to, end - start, { easing: easing, arc: arc }), start);
+      recordFlight(s, { start: start, end: end, from: from, to: to, target: target, easing: easing, arc: arc });
+      return range;
+    });
+  }
+
+  function readFlights(s) {
+    var v = userData(s.cameraId, FLIGHTS_KEY);
+    return Array.isArray(v) ? v : [];
+  }
+
+  // Remembers a flight on the Camera. A new record replaces any it overlaps; chained flights share one
+  // boundary frame (0-20 then 20-40), which is not an overlap. A record over exactly the same frames keeps its place.
+  function recordFlight(s, rec) {
+    if (typeof api.setUserData !== "function") return;
+    var all = readFlights(s), kept = all.filter(function (r) { return r.end <= rec.start || r.start >= rec.end; });
+    var gone = all.filter(function (r) { return kept.indexOf(r) < 0; });
+    if (gone.length === 1 && gone[0].start === rec.start && gone[0].end === rec.end) kept.splice(all.indexOf(gone[0]), 0, rec);
+    else kept.push(rec);
+    api.setUserData(s.cameraId, FLIGHTS_KEY, kept);
+  }
+
+  // The latest-made flight, or null.
+  function lastFlight(s) {
+    var all = readFlights(s);
+    return all.length ? all[all.length - 1] : null;
+  }
+
+  // The latest-made flight whose range holds the frame, or null.
+  function flightAt(s, frame) {
+    var all = readFlights(s);
+    for (var i = all.length - 1; i >= 0; i--) if (all[i].start <= frame && frame <= all[i].end) return all[i];
+    return null;
+  }
+
+  // The camera's centre and fov at a frame.
+  function readCameraAt(s, frame) {
+    return atFrame(frame, function () { return readCamera(s); });
+  }
+
+  // Where a flight really begins: the end view of a remembered flight that finishes where this one starts (a chain),
+  // else the camera as it is one frame before it, or the recorded start on the composition's first frame.
+  function flightStart(s, rec) {
+    var before = readFlights(s).filter(function (r) { return r.end === rec.start && r.start < rec.start; });
+    if (before.length) {
+      var p = before[before.length - 1].to;
+      return { ra: p.ra, dec: p.dec, fov: p.fov };
+    }
+    if (rec.start > compFrameRange().start) {
+      var c = readCameraAt(s, rec.start - 1);
+      return { ra: c.ra, dec: c.dec, fov: c.fov };
+    }
+    return { ra: rec.from.ra, dec: rec.from.dec, fov: rec.from.fov };
+  }
+
+  // Lengthens the composition for a flight ending at newEnd: the new end is newEnd plus 3 seconds. The layers
+  // that reached the old end move to the new end (a layer's out frame is one past its last frame), and so does
+  // the play range when it reached the old end. Layers trimmed to end earlier are left alone.
+  // Returns { oldEnd, newEnd, layers }, or null when the composition is already long enough.
+  function extendComp(newEnd) {
+    var comp = api.getActiveComp(), oldEnd = compFrameRange().end;
+    var target = Math.round(newEnd + EXTEND_PAD_SECONDS * compFps());
+    if (!(target > oldEnd)) return null;
+    return { oldEnd: oldEnd, newEnd: target, layers: extendOne(comp, oldEnd, target) };
+  }
+
+  // Moves the layers that reached oldEnd, the comp's end and (when it reached oldEnd) its play range to newEnd.
+  // Returns how many layers moved.
+  function extendOne(comp, oldEnd, newEnd) {
+    var layers = 0;
+    if (typeof api.getOutFrame === "function" && typeof api.setOutFrame === "function") {
+      api.getCompLayers(false).forEach(function (id) {
+        try {
+          if (Number(api.getOutFrame(id)) >= oldEnd) { api.setOutFrame(id, newEnd + 1); layers++; }
+        } catch (e) { /* one layer that can't be extended never stops the rest */ }
+      });
+    }
+    var playsToEnd = false;
+    try { playsToEnd = Number(api.get(comp, A.COMP_PLAYBACK_END_ATTR)) >= oldEnd; } catch (e) { /* no play range to keep */ }
+    var end = {};
+    end[A.COMP_END_ATTR] = newEnd;
+    api.set(comp, end);
+    if (playsToEnd) { var play = {}; play[A.COMP_PLAYBACK_END_ATTR] = newEnd; api.set(comp, play); }
+    return layers;
+  }
+
   return {
     createSky: createSky,
     findSkies: findSkies,
@@ -344,7 +514,17 @@ var AstroScene = (function () {
     setStarSize: setStarSize,
     setStarColours: setStarColours,
     setGlow: setGlow,
-    applyTheme: applyTheme
+    applyTheme: applyTheme,
+    jumpCamera: jumpCamera,
+    flyTarget: flyTarget,
+    flyCamera: flyCamera,
+    flyTo: flyTo,
+    recordFlight: recordFlight,
+    lastFlight: lastFlight,
+    flightAt: flightAt,
+    flightStart: flightStart,
+    readCameraAt: readCameraAt,
+    extendComp: extendComp
   };
 })();
 if (typeof module !== "undefined" && module.exports) module.exports = AstroScene;
