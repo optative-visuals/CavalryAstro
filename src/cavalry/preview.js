@@ -33,6 +33,7 @@ var AstroPreviewPanel = (function () {
       onPick: typeof opts.onPick === "function" ? opts.onPick : null, stats: { stars: 0, lines: 0, names: 0 }
     };
     var dirty = false, timer = null, running = false;
+    var onPress = typeof opts.onPress === "function" ? opts.onPress : null;
     var press = null, drag = null, panning = false, zoomDrag = null;
 
     function Y(y) { return state.h - y; } // Draw is y-up; the maths is y-down
@@ -187,6 +188,7 @@ var AstroPreviewPanel = (function () {
     if (typeof draw.setToolTip === "function") draw.setToolTip(HINT);
 
     draw.onMousePress = function (pos, button) {
+      if (onPress) onPress(); // the panel catches up with the canvas on any press
       press = null; drag = null; panning = false; zoomDrag = null;
       var y = Y(pos.y);
       if (button === "middle") { zoomDrag = { x: pos.x, y: y, view: state.view }; return; }

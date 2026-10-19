@@ -76,6 +76,76 @@ var AstroNet = (function () {
       "-H", "Accept: application/vnd.github+json", "-o", out, url]);
   }
 
-  return { USER_AGENT: USER_AGENT, ensureDir: ensureDir, settingsDir: settingsDir, loadSettings: loadSettings, saveSettings: saveSettings,
+  // Opens a folder (or a link) in the file browser. False when this Cavalry can't, or the open fails.
+  function openPath(target) {
+    if (typeof api.runDetachedProcess !== "function") return false;
+    try {
+      var t = String(target), isLink = /^[a-z][a-z0-9+.-]*:\/\//i.test(t);
+      var windows = /^[A-Za-z]:\//.test(settingsDir());
+      if (windows && !isLink) t = t.replace(/\//g, "\\");
+      api.runDetachedProcess(windows ? "explorer" : "open", [t]);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // ---- Sky style files: one JSON file per saved theme in the "Sky styles" folder -------------------
+  function stylesDir() { return settingsDir() + "/" + AstroStyleFiles.FOLDER; }
+  // Style files need a Cavalry that can list folders.
+  function filesSupported() { return typeof api.listDirectoryPaths === "function" || typeof api.listDirectory === "function"; }
+  // The entries of a folder listing with forward slashes; a bare name is put in dir.
+  function listFiles(dir) {
+    var list = typeof api.listDirectoryPaths === "function" ? api.listDirectoryPaths(dir) : api.listDirectory(dir);
+    return (list || []).map(function (p) {
+      var s = String(p).replace(/\\/g, "/");
+      return s.indexOf("/") < 0 ? dir + "/" + s : s;
+    });
+  }
+  // The .json files in the style folder, in path order (the folder is made if it is missing).
+  function listStyleFiles() {
+    var dir = stylesDir();
+    ensureDir(dir);
+    return listFiles(dir).filter(function (p) { return /\.json$/i.test(p); }).sort();
+  }
+  function readText(path) {
+    try { return String(api.readFromFile(path)); } catch (e) { return ""; } // unreadable: skipped by readAll
+  }
+  // Reads the style folder: { styles, skipped, paths, reasons, names } (see AstroStyleFiles.readAll).
+  function readStyleFiles() {
+    if (!filesSupported()) return AstroStyleFiles.readAll([]);
+    return AstroStyleFiles.readAll(listStyleFiles().map(function (p) { return { path: p, text: readText(p) }; }));
+  }
+  // Writes a theme to its file and returns the path. A theme already in the folder is written over its own file;
+  // a new one takes "<name>.json", or "<name> 2.json"... when that name holds another file, so no file is overwritten.
+  function writeStyleFile(style) {
+    var path = readStyleFiles().paths[style.name.toLowerCase()];
+    if (!path) {
+      var dir = stylesDir(), base = AstroStyleFiles.fileName(style.name).replace(/\.json$/, ""), n = 1;
+      ensureDir(dir);
+      path = dir + "/" + base + ".json";
+      while (api.filePathExists(path)) { n++; path = dir + "/" + base + " " + n + ".json"; }
+    }
+    api.writeToFile(path, AstroStyleFiles.toText(style), true);
+    if (!api.filePathExists(path)) throw new Error("Couldn't write " + path + ".");
+    return path;
+  }
+  // Deletes every file in the style folder that holds the theme with this name. Throws when this Cavalry can't
+  // delete files, or a file is still there afterwards.
+  function deleteStyleFile(name) {
+    var key = String(name).trim().toLowerCase(), paths = [];
+    if (filesSupported()) paths = listStyleFiles().filter(function (p) {
+      var s = AstroStyleFiles.fromText(readText(p));
+      return !!s && s.name.toLowerCase() === key;
+    });
+    paths.forEach(function (path) {
+      if (typeof api.deleteFilePath !== "function") throw new Error("This Cavalry can't delete files: delete " + path + " by hand.");
+      api.deleteFilePath(path);
+      if (api.filePathExists(path)) throw new Error("Couldn't delete " + path + ": it may be open elsewhere.");
+    });
+    return paths.length;
+  }
+
+  return { USER_AGENT: USER_AGENT, ensureDir: ensureDir, settingsDir: settingsDir, openPath: openPath, stylesDir: stylesDir,
+    filesSupported: filesSupported, readStyleFiles: readStyleFiles, writeStyleFile: writeStyleFile, deleteStyleFile: deleteStyleFile,
+    loadSettings: loadSettings, saveSettings: saveSettings,
     updateSettings: updateSettings, removeSettings: removeSettings, curlAvailable: curlAvailable, discard: discard, startDownloadJson: startDownloadJson };
 })();

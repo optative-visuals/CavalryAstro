@@ -30,7 +30,8 @@ function makeFakeApi() {
 
 // A minimal in-memory Cavalry ui: the widgets the placeholder panel and the style kit build.
 function makeFakeUi() {
-  function Widget(kind) { this.kind = kind; this._items = []; this._layout = null; this._hidden = false; }
+  const all = []; // every widget made, so a test can check every control (popover settings included)
+  function Widget(kind) { this.kind = kind; this._items = []; this._layout = null; this._hidden = false; all.push(this); }
   ["setHidden", "setBackgroundColor", "setToolTip", "setFixedWidth", "setFixedHeight", "setFontSize", "setTextColor",
     "setMargins", "setSpaceBetween", "addSpacing", "setRadius", "setBorder", "setDrawStroke", "setImageSize", "setImage"]
     .forEach((m) => { Widget.prototype[m] = function (...args) { this["_" + m] = args; return this; }; });
@@ -50,6 +51,34 @@ function makeFakeUi() {
   function Container() { Widget.call(this, "Container"); }
   Container.prototype = Object.create(Widget.prototype);
   Container.prototype.geometry = function () { return { x: 0, y: 0, width: 320, height: 24 }; };
+  Container.prototype.showAsPopover = function (x, y) { this._popover = [x, y]; };
+  // The Cavalry input widgets the panel uses. Entries and values are kept as set; a test fires onValueChanged itself.
+  function DropDown() { Widget.call(this, "DropDown"); this._entries = []; this._value = 0; this.onValueChanged = null; }
+  DropDown.prototype = Object.create(Widget.prototype);
+  DropDown.prototype.addEntry = function (t) { this._entries.push(String(t)); };
+  DropDown.prototype.clear = function () { this._entries = []; };
+  DropDown.prototype.getValue = function () { return this._value; };
+  DropDown.prototype.setValue = function (i) { this._value = i; };
+  function LineEdit() { Widget.call(this, "LineEdit"); this._text = ""; this.onValueCommitted = null; }
+  LineEdit.prototype = Object.create(Widget.prototype);
+  LineEdit.prototype.getText = function () { return this._text; };
+  LineEdit.prototype.setText = function (t) { this._text = String(t); };
+  LineEdit.prototype.setPlaceholder = function (t) { this._placeholder = t; };
+  function NumericField(v) { Widget.call(this, "NumericField"); this._value = Number(v) || 0; }
+  NumericField.prototype = Object.create(Widget.prototype);
+  NumericField.prototype.getValue = function () { return this._value; };
+  NumericField.prototype.setValue = function (v) { this._value = Number(v); };
+  NumericField.prototype.setType = function (t) { this._type = t; };
+  NumericField.prototype.setMin = function (v) { this._min = v; };
+  NumericField.prototype.setMax = function (v) { this._max = v; };
+  function Checkbox(on) { Widget.call(this, "Checkbox"); this._value = !!on; }
+  Checkbox.prototype = Object.create(Widget.prototype);
+  Checkbox.prototype.getValue = function () { return this._value; };
+  Checkbox.prototype.setValue = function (v) { this._value = !!v; };
+  // ui.Modal: showQuestion returns the test's answer (modal.answer) and keeps each question asked.
+  const modal = { answer: true, asked: [] };
+  function Modal() { this.kind = "Modal"; }
+  Modal.prototype.showQuestion = function (title, text) { modal.asked.push({ title: title, text: String(text) }); return modal.answer; };
   function VLayout() { Widget.call(this, "VLayout"); }
   VLayout.prototype = Object.create(Widget.prototype);
   function HLayout() { Widget.call(this, "HLayout"); }
@@ -68,11 +97,14 @@ function makeFakeUi() {
   let root = null;
   return {
     Label: Label, Button: Button, Container: Container, VLayout: VLayout, HLayout: HLayout, Draw: Draw,
+    DropDown: DropDown, LineEdit: LineEdit, NumericField: NumericField, Checkbox: Checkbox, Modal: Modal,
     add: function (w) { root = w; },
     show: function () { this._shown = true; },
     setTitle: function (t) { this._title = t; },
     setBackgroundColor: function (c) { this._background = c; },
-    _root: function () { return root; }
+    _root: function () { return root; },
+    _all: function () { return all.slice(); },
+    _modal: modal
   };
 }
 
@@ -257,7 +289,8 @@ test("the panel opens with tabs Sky, Stars, Reveal and a ⚙ button", () => {
   const { ui } = runPanel();
   assert.equal(ui._shown, true, "ui.show() was called");
   assert.equal(ui._title, "CavalryAstro");
-  const labels = buttonsIn(ui._root()).map((b) => b._text);
+  // The tab bar and the ⚙ cog are the first row; the pages (and the Sky page's buttons) come after it.
+  const labels = buttonsIn(ui._root()._items[0]).map((b) => b._text);
   assert.deepEqual(labels, ["Sky", "Stars", "Reveal", "⚙"]);
 });
 
@@ -843,4 +876,154 @@ test("setWholeSky on an unfed attribute still writes it directly", () => {
   assert.equal(api.get(layers.lines, "hidden"), true);
   S.setWholeSky(sky, "lines", true);
   assert.equal(api.get(layers.lines, "hidden"), false);
+});
+
+// ---- The panel: the Sky tab (Task 12) ---------------------------------------------------------------
+// Helpers over the fake ui: every widget of a kind, by text, and the dropdown that lists a given entry.
+function widgetsOfKind(ui, kind) { return ui._all().filter((w) => w.kind === kind); }
+function findButton(ui, text) { return widgetsOfKind(ui, "Button").find((b) => b._text === text); }
+function dropDownWith(ui, entry) { return widgetsOfKind(ui, "DropDown").find((d) => d._entries.indexOf(entry) >= 0); }
+function numericFields(ui) { return widgetsOfKind(ui, "NumericField"); }
+function lineEditWithPlaceholder(ui, text) { return widgetsOfKind(ui, "LineEdit").find((l) => l._placeholder === text); }
+function statusText(ui) { return ui._root()._items.slice(-1)[0]._text; }
+// Picks the "New sky" entry (always last in the list) and returns the dropdown.
+function pickNewSky(ui) {
+  const picker = dropDownWith(ui, "New sky");
+  picker.setValue(picker._entries.length - 1);
+  return picker;
+}
+// Searches for text as the user does: type it and press the Search button.
+function search(ui, text) {
+  lineEditWithPlaceholder(ui, "Search a constellation or star, e.g. Orion").setText(text);
+  findButton(ui, "Search").onClick();
+}
+
+test("the Sky tab: New sky with Create sky here makes Sky 1, then Sky 2, at the preview's green frame", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene, made = [];
+  const createSky = S.createSky;
+  S.createSky = function (name, cam, theme) { made.push({ name: name, cam: cam }); return createSky(name, cam, theme); };
+  const frame = context.AstroPreview.frameCamera(context.AstroPreview.defaultView());
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  assert.equal(made[0].name, "Sky 1");
+  assert.ok(Math.abs(made[0].cam.ra - frame.ra) < 1e-9 && Math.abs(made[0].cam.fov - frame.fov) < 1e-9, "the green frame's camera");
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  assert.equal(made[1].name, "Sky 2");
+  assert.equal(S.findSkies().length, 2);
+});
+
+test("searching orion lists Orion first, and Enter in Search runs the search too", () => {
+  const { ui } = runPanel();
+  search(ui, "orion");
+  const picker = dropDownWith(ui, "Whole sky");
+  assert.equal(picker._entries[0], "Whole sky");
+  assert.equal(picker._entries[1], "Orion");
+  lineEditWithPlaceholder(ui, "Search a constellation or star, e.g. Orion").setText("sirius");
+  lineEditWithPlaceholder(ui, "Search a constellation or star, e.g. Orion").onValueCommitted();
+  assert.equal(dropDownWith(ui, "Whole sky")._entries[1], "Sirius");
+});
+
+test("Fly here from frame 0 to 100 keys the camera on Orion and records a flight to it; the fields then chain", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  search(ui, "orion");
+  const results = dropDownWith(ui, "Whole sky");
+  results.setValue(1);
+  results.onValueChanged();
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(100);
+  findButton(ui, "Fly here").onClick();
+  assert.deepEqual(api.getKeyframeTimes(sky.cameraId, "array.0").slice(0, 2), [0, 1]);
+  assert.ok(api.getKeyframeTimes(sky.cameraId, "array.0").includes(100), "a key on the last frame");
+  const rec = S.lastFlight(sky);
+  assert.equal(rec.target.kind, "constellation");
+  assert.equal(rec.target.label, "Orion");
+  assert.equal(rec.start, 0);
+  assert.equal(rec.end, 100);
+  assert.equal(from.getValue(), 100, "From moves on to the flight's end");
+  assert.equal(to.getValue(), 200, "To moves on by the flight's length");
+});
+
+test("Fly here past the comp end asks first, and on No it changes nothing", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(150);
+  ui._modal.answer = false;
+  findButton(ui, "Fly here").onClick();
+  assert.equal(ui._modal.asked.length, 1, "the question was asked once");
+  assert.equal(api.get(api.getActiveComp(), "endFrame"), 100, "the comp is not lengthened");
+  assert.deepEqual(api.getKeyframeTimes(sky.cameraId, "array.0"), [], "no camera keys");
+  assert.equal(S.lastFlight(sky), null);
+  assert.ok(statusText(ui).indexOf("Cancelled") === 0, "the status line says so");
+});
+
+test("Fly here past the comp end on Yes extends the comp once, by the 3-second pad only", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(150);
+  ui._modal.answer = true;
+  findButton(ui, "Fly here").onClick();
+  assert.equal(api.get(api.getActiveComp(), "endFrame"), 225, "150 + 3 seconds at 25 fps");
+  assert.equal(S.lastFlight(S.findSkies()[0]).end, 150);
+});
+
+test("Jump here puts the camera on the green frame of the picked constellation", () => {
+  const { ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  search(ui, "orion");
+  const results = dropDownWith(ui, "Whole sky");
+  results.setValue(1);
+  results.onValueChanged();
+  findButton(ui, "Jump here").onClick();
+  const orion = S.skyData().cons.findIndex((c) => c.name === "Orion");
+  const target = S.flyTarget("constellation", orion);
+  const frame = context.AstroPreview.frameCamera({ ra: target.ra, dec: target.dec, fov: target.fov });
+  const cam = S.readCamera(sky);
+  assert.ok(Math.abs(cam.ra - frame.ra) < 1e-9 && Math.abs(cam.dec - frame.dec) < 1e-9, "the centre is the green frame's");
+  assert.ok(Math.abs(cam.fov - frame.fov) < 1e-9, "the field of view is the green frame's");
+});
+
+test("Refresh controls and every press prepare the picked sky's reveals", () => {
+  const { ui, context } = runPanel();
+  const S = context.AstroScene, calls = [];
+  const prepare = S.prepareReveals;
+  S.prepareReveals = function (sky) { calls.push(sky.groupId); return prepare(sky); };
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const made = S.findSkies()[0].groupId;
+  calls.length = 0;
+  findButton(ui, "Refresh controls").onClick();
+  assert.ok(calls.length >= 1 && calls.every((g) => g === made), "Refresh controls prepares the sky's reveals");
+  calls.length = 0;
+  findButton(ui, "Jump here").onClick();
+  assert.ok(calls.indexOf(made) >= 0, "a press prepares them too");
+});
+
+test("every control in the panel has a hover tip, the settings popover's included", () => {
+  const { ui } = runPanel();
+  const tabs = ["Sky", "Stars", "Reveal"];
+  const controls = ui._all().filter((w) => ["Button", "DropDown", "LineEdit", "NumericField", "Checkbox"].indexOf(w.kind) >= 0)
+    .filter((w) => !(w.kind === "Button" && tabs.indexOf(w._text) >= 0));
+  assert.ok(controls.length > 20, "the panel has its controls");
+  controls.forEach((w) => {
+    assert.ok(w._setToolTip && String(w._setToolTip[0]).length > 0, "a tip on " + (w._text || w.kind));
+  });
 });

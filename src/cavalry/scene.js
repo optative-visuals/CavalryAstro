@@ -833,6 +833,10 @@ var AstroScene = (function () {
   return {
     createSky: createSky,
     findSkies: findSkies,
+    skyData: skyData,
+    skyTheme: themeOf,
+    compFrameRange: compFrameRange,
+    compFps: compFps,
     skyLayers: skyLayers,
     readCamera: readCamera,
     setCamera: setCamera,
