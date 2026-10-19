@@ -35,23 +35,20 @@ var AstroReveal = (function () {
   // Where the title goes, in Cavalry pixels with the origin at the comp centre and y up.
   // mode 0 (Header): a corner of the frame, inset by margin. mode 1 (Follows constellation): the projected centre
   // of the constellation, moved offsetY up. projected is [x, y], or null when the centre is not on screen.
-  function titlePosition(mode, corner, margin, compW, compH, projected, offsetY) {
+  // A title is centred in its corner's column in every mode, so a left or right corner is inset by half its estimated
+  // width (TEXT_WIDTH x font size x characters) to keep its text inside the frame edge.
+  var TEXT_WIDTH = 0.3;
+  function titlePosition(mode, corner, margin, compW, compH, projected, offsetY, fontSize, charCount) {
     if (mode === 1) {
       if (!projected) return [OFF_SCREEN, OFF_SCREEN];
       return [projected[0], projected[1] + offsetY];
     }
+    var halfText = TEXT_WIDTH * (Number(fontSize) || 0) * (Number(charCount) || 0);
     var halfW = compW / 2 - margin, halfH = compH / 2 - margin;
-    var place = [[-halfW, halfH], [0, halfH], [halfW, halfH], [-halfW, -halfH], [0, -halfH], [halfW, -halfH]];
+    var place = [[-halfW + halfText, halfH], [0, halfH], [halfW - halfText, halfH],
+      [-halfW + halfText, -halfH], [0, -halfH], [halfW - halfText, -halfH]];
     var c = place[corner] ? corner : DEFAULT_CORNER;
     return [place[c][0], place[c][1]];
-  }
-
-  // The title's horizontal alignment (Cavalry: 0 left, 1 centre, 2 right) from its corner's column. A title that follows
-  // the constellation is centred on its point.
-  var ALIGNMENT = [0, 1, 2, 0, 1, 2];
-  function alignmentOf(mode, corner) {
-    if (mode === 1) return 1;
-    return ALIGNMENT[corner] !== undefined ? ALIGNMENT[corner] : ALIGNMENT[DEFAULT_CORNER];
   }
 
   // When a reveal starts and how many frames it takes. If the last flight went to this constellation, the reveal
@@ -71,7 +68,6 @@ var AstroReveal = (function () {
     stage: stage,
     spotlightDim: spotlightDim,
     titlePosition: titlePosition,
-    alignmentOf: alignmentOf,
     revealTiming: revealTiming
   };
 })();

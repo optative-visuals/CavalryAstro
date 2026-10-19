@@ -823,7 +823,7 @@ var AstroScene = (function () {
     }
     if (parts.indexOf("title") >= 0) {
       var titleId = stage("title");
-      var pos = utilityLayer(groupId, "Reveal title position", E.titlePositionExpression(ASTRO_REVEAL_SRC, { category: "revealTitle" }),
+      var pos = utilityLayer(groupId, "Reveal title position", E.titlePositionExpression(ASTRO_REVEAL_SRC, { category: "revealTitle" }, caseName(c.latin, theme.nameCase).length),
         E.TITLE_INPUTS, { conRa: c.centre[0], conDec: c.centre[1], compW: cw.width, compH: cw.height }, { category: "revealTitle" });
       ["titleMode", "corner", "margin", "offsetY"].forEach(function (n) {
         api.connect(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n),
@@ -837,17 +837,10 @@ var AstroScene = (function () {
       applyStyle(title, { fill: theme.title });
       api.connect(pos, A.DRIVER_OUTPUT_ATTR, title, "position", true);
       api.connect(titleId, A.DRIVER_OUTPUT_ATTR, title, "opacity", true);
-      // The alignment follows the title's corner and mode, from the reveal's amount, and is set now as well.
-      var align = utilityLayer(groupId, "Reveal title alignment", E.titleAlignmentExpression(ASTRO_REVEAL_SRC, { category: "revealAlign" }),
-        E.ALIGN_INPUTS, {}, { category: "revealAlign" });
-      ["titleMode", "corner"].forEach(function (n) {
-        api.connect(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n),
-          align, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.ALIGN_INPUTS, n), true);
-      });
-      var mode = Number(api.get(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, "titleMode")));
-      var corner = Number(api.get(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, "corner")));
-      setOne(title, A.TEXT_ALIGN_ATTR, AstroReveal.alignmentOf(mode, corner));
-      api.connect(align, A.DRIVER_OUTPUT_ATTR, title, A.TEXT_ALIGN_ATTR, true);
+      // Centred in every mode (Cavalry cannot drive the alignment). The position offsets a side corner by half the title's
+      // width, and reads the title's font size, so a change of size moves it.
+      setOne(title, A.TEXT_ALIGN_ATTR, 1);
+      api.connect(title, "fontSize", pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, "fontSize"), true);
       api.parent(title, groupId);
     }
   }

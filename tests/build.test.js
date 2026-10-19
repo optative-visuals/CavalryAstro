@@ -731,18 +731,28 @@ test("the sky's layers are found by their tags, without reading any layer's expr
   assert.equal(reveal.number, 1);
 });
 
-// The title's alignment is a utility fed by the reveal's title mode and corner, and it drives the title.
-test("the title's horizontal alignment follows its corner and mode: left corners left, centre corners centre, right corners right", () => {
-  const { api, context, reveal } = revealFixture();
+// The title is centred in every mode, and a Header title in a left or right corner is inset by half its estimated
+// width (0.3 x font size x characters), so its text sits inside the frame edge. There is no alignment utility.
+test("the title is centred in every mode, and no alignment utility is made", () => {
+  const { api, S, sky, reveal, context } = revealFixture();
   const title = childNamed(api, reveal.groupId, "Title");
-  const align = childNamed(api, reveal.groupId, "Reveal title alignment");
-  assert.equal(api.get(title, "horizontalAlignment"), 1, "the default top-centre title is centred");
-  assert.equal(api.getInConnection(title, "horizontalAlignment"), align + ".id", "the title's alignment is driven by the utility");
-  const expr = String(api.get(align, "expression"));
-  const cases = [[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 0], [4, 0, 1], [5, 0, 2], [0, 1, 1], [5, 1, 1]];
-  cases.forEach(([corner, mode, want]) => {
-    assert.equal(runUtility(context, expr, { titleMode: mode, corner: corner }), want, "corner " + corner + " mode " + mode);
-  });
+  assert.equal(api.get(title, "horizontalAlignment"), 1, "the default top-centre title");
+  assert.equal(childNamed(api, reveal.groupId, "Reveal title alignment"), undefined, "no alignment utility");
+  const follows = S.createReveal(sky, consIndex(context, "Orion"), REVEAL_PARTS, 60, 25, { titleMode: 1 });
+  assert.equal(api.get(childNamed(api, follows.groupId, "Title"), "horizontalAlignment"), 1, "Follows constellation is centred too");
+});
+
+test("the title position offsets a left corner by half the estimated width, a right corner by minus that, centre by none", () => {
+  const { api, context, reveal } = revealFixture();
+  const expr = String(api.get(childNamed(api, reveal.groupId, "Reveal title position"), "expression"));
+  const base = { titleMode: 0, corner: 0, margin: 60, offsetY: 80, conRa: 83, conDec: 6, camRa: 83, camDec: 6, camFov: 60, camRotation: 0, compW: 1920, compH: 1080, fontSize: 72 };
+  // "ORION" has 5 characters: halfW = 0.3 x 72 x 5 = 108.
+  const left = runUtility(context, expr, base);
+  assert.ok(Math.abs(left[0] - (-960 + 60 + 0.3 * 72 * 5)) < 1e-9, "corner 0 x: " + left[0]);
+  const right = runUtility(context, expr, Object.assign({}, base, { corner: 2 }));
+  assert.ok(Math.abs(right[0] - (960 - 60 - 0.3 * 72 * 5)) < 1e-9, "corner 2 mirrors corner 0: " + right[0]);
+  const centre = runUtility(context, expr, Object.assign({}, base, { corner: 1 }));
+  assert.equal(centre[0], 0, "corner 1 is centred");
 });
 
 test("a second reveal of Orion is Reveal 2: Orion", () => {

@@ -77,7 +77,7 @@ var AstroExpression = (function () {
   var STAGE_INPUTS = [["amount", 0]];
   // The title's place: the reveal's settings, the constellation centre, the camera and the comp size.
   var TITLE_INPUTS = [["titleMode", 0], ["corner", 1], ["margin", 60], ["offsetY", 80], ["conRa", 0], ["conDec", 0],
-    ["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["compW", 1920], ["compH", 1080]];
+    ["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["compW", 1920], ["compH", 1080], ["fontSize", 72]];
   // The glow's opacity: the spotlight's visible share (0..100) of the glow level (0..100).
   var GLOW_LEVEL_INPUTS = [["visible", 100], ["level", 60]];
 
@@ -101,7 +101,7 @@ var AstroExpression = (function () {
 
   // The title's [x, y]: projects the constellation centre through the camera, then AstroReveal.titlePosition.
   // The projection is always stereographic here; the field of view is clamped so the projector never fails.
-  function titlePositionExpression(runtimeSrc, meta) {
+  function titlePositionExpression(runtimeSrc, meta, charCount) {
     var v = function (name) { return "_i" + inputIndex(TITLE_INPUTS, name); };
     return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(TITLE_INPUTS) +
       "var _p = [0, 0];\n" +
@@ -109,14 +109,7 @@ var AstroExpression = (function () {
       v("camRotation") + ", projection: 0};\n" +
       "var _seen = AstroSky.makeProjector(_cam, " + v("compW") + ")(" + v("conRa") + ", " + v("conDec") + ", _p);\n" +
       "AstroReveal.titlePosition(" + v("titleMode") + ", " + v("corner") + ", " + v("margin") + ", " + v("compW") + ", " +
-      v("compH") + ", _seen ? _p : null, " + v("offsetY") + ");\n";
-  }
-
-  // The title's horizontal alignment from the reveal's title mode and corner (AstroReveal.alignmentOf).
-  var ALIGN_INPUTS = [["titleMode", 0], ["corner", 1]];
-  function titleAlignmentExpression(runtimeSrc, meta) {
-    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(ALIGN_INPUTS) +
-      "AstroReveal.alignmentOf(_i0, _i1);\n";
+      v("compH") + ", _seen ? _p : null, " + v("offsetY") + ", " + v("fontSize") + ", " + (Number(charCount) || 0) + ");\n";
   }
 
   // The spotlight: 100 minus the darkest dim of the reveals (their amounts and spotlights, from the inputs).
@@ -142,8 +135,6 @@ var AstroExpression = (function () {
     revealAmountExpression: revealAmountExpression,
     stageExpression: stageExpression,
     titlePositionExpression: titlePositionExpression,
-    ALIGN_INPUTS: ALIGN_INPUTS,
-    titleAlignmentExpression: titleAlignmentExpression,
     spotlightExpression: spotlightExpression,
     glowLevelExpression: glowLevelExpression,
     CAMERA_INPUTS: CAMERA_INPUTS,
