@@ -30,7 +30,7 @@ Every sky's settings sit in its **Sky controls** and **Reveal controls** compone
 3. Open **Scripts → CavalryAstro**. No restart needed.
 4. **Imagery plugin (once, for imagery only):** drag the **CavalryAstro_plugin** folder from the zip into the
    Cavalry window. It adds the **CavalryAstro Reproject** filter that the sky imagery uses.
-5. **Imagery pack (optional):** download **CavalryAstro-imagery.zip** from the same
+5. **Imagery pack (optional):** download **CavalryAstro-imagery-v<version>.zip** from the same
    [Releases page](https://github.com/optative-visuals/CavalryAstro/releases/latest), unzip it, and merge its
    **CavalryAstro_assets** folder into the one in your Scripts folder. Then press **Build imagery** on the
    **Imagery** tab. The [guide](docs/guide.md#imagery) explains the rest.

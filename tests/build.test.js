@@ -2021,7 +2021,7 @@ test("Cancel with nothing building says so", () => {
   assert.match(statusText(ui), /Nothing is being built/);
 });
 
-test("Add attribution makes one \"Imagery credit\" text layer, bottom-right of the sky, and pressing it twice still makes one", () => {
+test("Add attribution makes one \"Imagery credit\" text layer, bottom-left of the sky, and pressing it twice still makes one", () => {
   const { ui, api, sky } = panelWithSky();
   openImageryTab(ui);
   findButton(ui, "Add attribution").onClick();
@@ -2031,7 +2031,7 @@ test("Add attribution makes one \"Imagery credit\" text layer, bottom-right of t
   assert.equal(api.getLayerType(credits[0]), "textShape");
   assert.equal(api.get(credits[0], "text"), CREDIT_TEXT);
   const pos = api.get(credits[0], "position");
-  assert.ok(pos[0] > 0 && pos[1] < 0, "right of centre and below it");
+  assert.ok(pos[0] < 0 && pos[1] < 0, "left of centre and below it, as Geo's credit");
 });
 
 test("every Imagery tab control has a hover tip", () => {
@@ -2040,4 +2040,28 @@ test("every Imagery tab control has a hover tip", () => {
   ["imagery.source", "imagery.build", "imagery.cancel", "imagery.attribution", "imagery.progress"].forEach((key) => {
     assert.ok(tipped(ui, context, key), "a tip for " + key);
   });
+});
+
+test("during a timer-stepped imagery build, a panel press does not catch the panel up with the canvas", () => {
+  const { ui, api, context, sky } = panelWithSky();
+  const S = context.AstroScene, plan = S.planImagery(sky);
+  putPack(api);
+  putTiles(api, plan);
+  let caught = 0;
+  const prepare = S.prepareReveals;
+  S.prepareReveals = function (s) { caught++; return prepare.call(this, s); };
+  openImageryTab(ui);
+  const from = api._timers.length;
+  findButton(ui, "Build imagery").onClick(); // asks (Yes); the build is stepped by timers, which are not run yet
+  assert.equal(statusText(ui), "Building imagery…", "the build is running");
+  caught = 0;
+  findButton(ui, "Add attribution").onClick();
+  assert.equal(caught, 0, "no catch-up while the build runs");
+  assert.equal(api.getChildren(sky.groupId).filter((id) => api.getNiceName(id) === "Imagery credit").length, 1, "the press still ran");
+  runNewTimers(api, from);
+  assert.match(statusText(ui), /^Imagery built/);
+  caught = 0;
+  findButton(ui, "Add attribution").onClick();
+  assert.equal(caught, 1, "once the build is done, a press catches up again");
+  S.prepareReveals = prepare;
 });

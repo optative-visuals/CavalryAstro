@@ -267,7 +267,8 @@ function syncCompSize() {
 // It never moves the preview's view, so a press always works on the view the user sees. Never throws.
 function syncToCanvas() {
   try {
-    if (busy) return;
+    // While an action runs, or an imagery build is stepping (its job is still set), the panel is left as it is.
+    if (busy || imageryJob) return;
     syncedAt = Date.now();
     followActiveComp(false, true);
     syncCompSize();

@@ -47,7 +47,7 @@ var AstroTips = (function () {
     "imagery.source": "The photo to put on the sky. NASA Deep Star Maps is public domain, and its tiles come from the imagery pack.",
     "imagery.build": "Builds the photo for the picked sky. It asks first, with the number of tiles, then builds them in steps.",
     "imagery.cancel": "Stops a build. The partly built photo is taken down, and an older photo stays as it was.",
-    "imagery.attribution": "Adds the credit NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC to the bottom right of the sky. Pressing it again keeps one credit.",
+    "imagery.attribution": "Adds the credit NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC to the bottom left of the sky. Pressing it again keeps one credit.",
     "imagery.progress": "How far the build has got, in tiles.",
     "settings.cog": "Opens the settings.",
     "settings.openStyles": "Opens the Sky styles folder in Explorer or Finder.",

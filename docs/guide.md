@@ -112,15 +112,15 @@ Then, on the **Imagery** tab:
 - **Rebuilding:** after you change the flight, press **Build imagery** again. The new photo replaces the old
   one, and the Opacity and Brightness you set are kept.
 - **Layer order:** the photo sits above the drawn stars and below the constellation lines, borders, names and
-  reveals. To show the plugin's own stars instead, drag the photo's group, **Imagery: NASA Deep Star Maps**,
+  reveals. To put the drawn stars over the photo, drag the photo's group, **Imagery: NASA Deep Star Maps**,
   below the star layers in the Scene Window. The panel never moves it back.
 - **Controls:** once the photo exists, the sky's **Sky controls** hold three rows after **Background**:
   **Imagery · Opacity** (0 to 100), **Imagery · Hide**, and **Imagery · Brightness** (0 to 4, the filter's gain).
-- **Add attribution:** puts the credit **NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC** in the bottom right of the
+- **Add attribution:** puts the credit **NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC** in the bottom left of the
   sky. Press it again and there is still one credit. NASA's images are public domain, but please keep the credit.
 
-Sky darkness and styles don't change the photo. The sky's darkness and theme change the drawn stars and lines
-only, and a reveal's Spotlight dims the photo evenly, as it dims the sky.
+Sky darkness and styles don't change the photo; they change only the drawn stars and lines. A reveal's
+Spotlight dims the photo evenly, as it dims the sky.
 
 ## Controls
 
