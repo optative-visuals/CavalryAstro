@@ -70,7 +70,7 @@ test("the release zip holds the plugin, its data and the docs, and no private or
       "CavalryAstro_assets/sky/constellations.json",
       "CavalryAstro_assets/sky/stars.json",
       "INSTALL.txt",
-      "LICENSE.txt",
+      "LICENSE",
       "README.md",
       "THIRD-PARTY-NOTICES.md",
       "docs/guide.md"

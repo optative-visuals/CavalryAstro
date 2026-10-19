@@ -6,7 +6,7 @@ lines and names, and reveals that draw each constellation on in turn. It works a
 Cavalry layers you can style, keyframe and render.
 
 [![Latest release](https://img.shields.io/github/v/release/optative-visuals/CavalryAstro?label=download)](https://github.com/optative-visuals/CavalryAstro/releases/latest)
-[![Licence: GPL v3](https://img.shields.io/badge/licence-GPL--3.0-blue)](LICENSE.txt)
+[![Licence: GPL v3](https://img.shields.io/badge/licence-GPL--3.0-blue)](LICENSE)
 [![Support my work on Ko-fi](https://img.shields.io/badge/support%20my%20work-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/optative)
 
 Work in progress. v0.1 covers the sky, the constellations and the reveals. See the
@@ -53,6 +53,6 @@ The full attributions, the d3-celestial licence text and the changes made to the
 ## Licence
 
 CavalryAstro is free software under the GNU General Public License, version 3 or (at your option) any
-later version (GPL-3.0-or-later). See [LICENSE.txt](LICENSE.txt). The bundled star data keeps its own
+later version (GPL-3.0-or-later). See [LICENSE](LICENSE). The bundled star data keeps its own
 licence (CC BY-SA 4.0), and the constellation data keeps its own (BSD-3-Clause); see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

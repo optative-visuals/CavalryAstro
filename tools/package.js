@@ -17,7 +17,7 @@ function installText(version) {
     "3. Open Scripts > CavalryAstro. No restart needed.",
     "",
     "Star data: HYG Database (CC BY-SA 4.0). Constellation lines and names: d3-celestial (BSD-3-Clause).",
-    "CavalryAstro is free software under the GNU GPL v3 or later (see LICENSE.txt); it comes with ABSOLUTELY NO WARRANTY.",
+    "CavalryAstro is free software under the GNU GPL v3 or later (see LICENSE); it comes with ABSOLUTELY NO WARRANTY.",
     "Source: https://github.com/optative-visuals/CavalryAstro",
     ""
   ].join("\r\n");
@@ -36,7 +36,7 @@ function packageFiles(dist, version) {
   return [
     { name: "CavalryAstro.js", data: fs.readFileSync(path.join(dist, "CavalryAstro.js")) },
     ...collect(path.join(dist, "CavalryAstro_assets"), "CavalryAstro_assets/", []),
-    { name: "LICENSE.txt", data: fs.readFileSync(path.join(ROOT, "LICENSE.txt")) },
+    { name: "LICENSE", data: fs.readFileSync(path.join(ROOT, "LICENSE")) },
     { name: "README.md", data: fs.readFileSync(path.join(ROOT, "README.md")) },
     { name: "THIRD-PARTY-NOTICES.md", data: fs.readFileSync(path.join(ROOT, "THIRD-PARTY-NOTICES.md")) },
     { name: "docs/guide.md", data: fs.readFileSync(path.join(ROOT, "docs", "guide.md")) },

@@ -1,6 +1,6 @@
 # Third-party notices
 
-CavalryAstro is licensed under GPL-3.0-or-later (see LICENSE.txt). It includes data from two
+CavalryAstro is licensed under GPL-3.0-or-later (see LICENSE). It includes data from two
 third-party projects, which keep their own licences:
 
 ## d3-celestial (BSD-3-Clause)
