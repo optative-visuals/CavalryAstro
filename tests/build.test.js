@@ -253,7 +253,11 @@ function addSceneApi(api) {
     getOutConnections: (id, attr) => connections.filter((k) => k[0] === id && k[1] === attr).map((k) => k[2] + "." + k[3]),
     setFill: (id, on) => { (paints[id] = paints[id] || {}).fill = !!on; },
     setStroke: (id, on) => { (paints[id] = paints[id] || {}).stroke = !!on; },
-    select: (id) => { selection = [id]; },
+    // Real Cavalry takes an array of ids and throws on anything else.
+    select: (ids) => {
+      if (!Array.isArray(ids)) throw new Error("expected Array, typeof=" + typeof ids);
+      selection = ids.slice();
+    },
     getSelection: () => selection.slice(),
     setUserData: (id, key, value) => { (userData[id] = userData[id] || {})[key] = JSON.parse(JSON.stringify(value)); },
     getUserDataKey: (id, key) => { const v = (userData[id] || {})[key]; return v === undefined ? null : JSON.parse(JSON.stringify(v)); },
@@ -406,7 +410,8 @@ test("createSky selects the \"<sky> Sky controls\" layer, not the group", () => 
   const { api, sky } = skyFixture();
   const comp = api.getCompLayers(false).find((id) => api.getNiceName(id) === "Sky 1 Sky controls");
   assert.ok(comp, "the controls component");
-  assert.deepEqual(api.getSelection(), [comp]);
+  // The selection is an array from the panel's sandbox, so copy it into this realm before comparing.
+  assert.deepEqual([...api.getSelection()], [comp]);
   assert.notEqual(api.getSelection()[0], sky.groupId);
 });
 

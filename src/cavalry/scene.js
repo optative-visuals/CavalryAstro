@@ -253,7 +253,7 @@ var AstroScene = (function () {
     setOne(names, "hidden", true);
     var made = { groupId: groupId, cameraId: cameraId, name: name }, ctl = syncControls(made);
     // The sky's Controls are what the user works in, so they are selected rather than the group.
-    if (typeof api.select === "function") api.select(ctl && ctl.componentId ? ctl.componentId : groupId);
+    if (typeof api.select === "function") api.select([ctl && ctl.componentId ? ctl.componentId : groupId]);
     return made;
   }
 
