@@ -784,3 +784,45 @@ test("setStarSize writes the Controls input: the bands draw at the size, the glo
   layers.bands.forEach((id) => assert.equal(effectiveSize(api, id), 2, api.getNiceName(id)));
   assert.equal(effectiveSize(api, layers.glow), 6);
 });
+
+// ---- Controls fix round 2: setCamera and setWholeSky write through a fed input too -----------------------
+test("setCamera after the sync: every sky layer's effective centre is the new one", () => {
+  const { api, S, sky, layers, context } = skyFixture();
+  syncNow(context, sky);
+  S.setCamera(sky, { ra: 10, dec: 5, fov: 40, rotation: 0, projection: 0 });
+  [layers.bands[0], layers.glow, layers.lines].forEach((id) => {
+    assert.equal(api.get(id, "generator.array.0"), 10, api.getNiceName(id) + " centreRa");
+    assert.equal(api.get(id, "generator.array.1"), 5, api.getNiceName(id) + " centreDec");
+  });
+});
+
+test("setCamera on a camera input fed from a utility: the utility takes the value, and the camera reads it", () => {
+  const { api, S, sky, context } = skyFixture();
+  syncNow(context, sky);
+  const feed = api.create("javaScript", "Feed");
+  api.set(feed, { "array.0": 5 });
+  api.connect(feed, "array.0", sky.cameraId, "array.0", true);
+  S.setCamera(sky, { ra: 10, dec: 0, fov: 60, rotation: 0, projection: 0 });
+  assert.equal(api.get(feed, "array.0"), 10, "the source holds the new centre");
+  assert.equal(api.get(sky.cameraId, "array.0"), 10, "the camera reads it");
+});
+
+test("setWholeSky on Lines' hidden fed from a utility: the utility takes the value and the lines read it", () => {
+  const { api, S, sky, layers, context } = skyFixture();
+  syncNow(context, sky);
+  const feed = api.create("javaScript", "Feed");
+  api.set(feed, { "array.0": false });
+  api.connect(feed, "array.0", layers.lines, "hidden", true);
+  S.setWholeSky(sky, "lines", false);
+  assert.equal(api.get(feed, "array.0"), true, "the source holds the hidden value");
+  assert.equal(api.get(layers.lines, "hidden"), true, "the lines read it");
+});
+
+test("setWholeSky on an unfed attribute still writes it directly", () => {
+  const { api, S, sky, layers, context } = skyFixture();
+  syncNow(context, sky);
+  S.setWholeSky(sky, "lines", false);
+  assert.equal(api.get(layers.lines, "hidden"), true);
+  S.setWholeSky(sky, "lines", true);
+  assert.equal(api.get(layers.lines, "hidden"), false);
+});

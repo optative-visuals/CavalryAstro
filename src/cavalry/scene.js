@@ -28,13 +28,14 @@ var AstroScene = (function () {
   }
   function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
 
-  // Writes an input the way Cavalry reads it: an input fed by a utility's output (a Controls value) takes the value
-  // at that source, since a write to the fed input itself has no effect. Other inputs are written directly.
+  // Writes an input the way Cavalry reads it: an input fed from another layer's attribute (a Controls value, or a
+  // camera input the sky layers read) takes the value at that source, since a write to the fed input itself has no
+  // effect. The driver output "id" is not a value, so an input driven by one is written directly. Others are written directly.
   function writeInput(id, attr, value) {
     var from = "";
     try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
     var at = from.indexOf(".");
-    if (at > 0 && /^array\.\d+$/.test(from.slice(at + 1))) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
+    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
     setOne(id, attr, value);
   }
 
@@ -296,9 +297,8 @@ var AstroScene = (function () {
   function setCamera(s, cam) {
     var vals = cameraValues(cam, ""), o = {};
     E.CAMERA_INPUTS.forEach(function (inp, i) {
-      if (vals[inp[0]] !== undefined) o[A.CAMERA_ARRAY_ATTR + "." + i] = vals[inp[0]];
+      if (vals[inp[0]] !== undefined) writeInput(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i, vals[inp[0]]);
     });
-    api.set(s.cameraId, o);
   }
 
   // Sets one star input on every star layer (bands and glow); valueOf(id) gives each layer's value.
@@ -335,7 +335,7 @@ var AstroScene = (function () {
   function setWholeSky(s, part, on) {
     if (PARTS.indexOf(part) < 0) throw new Error("Unknown sky part: " + part);
     var id = skyLayers(s)[part];
-    if (id) setOne(id, "hidden", !on);
+    if (id) writeInput(id, "hidden", !on);
   }
 
   // An attribute is driven when it is keyframed or connected: the theme does not overwrite it.
