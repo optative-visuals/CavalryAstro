@@ -5,7 +5,7 @@ if (typeof AstroSky === "undefined" && typeof require !== "undefined") { var Ast
 
 var AstroFly = (function () {
   var DEG = Math.PI / 180, RHO = Math.SQRT2, EPS = 1e-12, FOV_MIN = 1, FOV_MAX = 180;
-  var OVERSHOOT_AT = 0.85, OVERSHOOT_FOV = 0.75, DRIFT_IN = 0.85, DRIFT_PAN = 0.05;
+  var OVERSHOOT_AT = 0.85, OVERSHOOT_FOV = 0.75, DRIFT_IN = 0.85, DRIFT_PAN = 0.05, POLE_DEC = 89.999;
 
   function cosh(x) { return (Math.exp(x) + Math.exp(-x)) / 2; }
   function sinh(x) { return (Math.exp(x) - Math.exp(-x)) / 2; }
@@ -89,10 +89,18 @@ var AstroFly = (function () {
       var p = radec(slerp(a, b, view.pos));
       out.push({ ra: p.ra, dec: p.dec, fov: clampFov(view.fov) });
     }
-    out[0] = { ra: AstroSky.wrapRa(from.ra), dec: from.dec, fov: f0 };
-    out[frames] = { ra: AstroSky.wrapRa(to.ra), dec: to.dec, fov: f1 };
+    pinEnds(out, from, to, f0, f1);
     return out;
   }
+
+  // Endpoints are exact, except that an endpoint on the pole takes its neighbour's RA: at the pole RA only
+  // sets the screen roll, so the requested RA would turn the sky in one frame. Its dec and fov stay exact.
+  function pinEnds(out, from, to, f0, f1) {
+    var last = out.length - 1;
+    out[0] = { ra: AstroSky.wrapRa(isPole(from.dec) ? out[1].ra : from.ra), dec: from.dec, fov: f0 };
+    out[last] = { ra: AstroSky.wrapRa(isPole(to.dec) ? out[last - 1].ra : to.ra), dec: to.dec, fov: f1 };
+  }
+  function isPole(dec) { return Math.abs(dec) >= POLE_DEC; }
 
   // End view of a drift. Push in / Pull out change fov by 15 % (x 0.85, or / 0.85). The pans move the
   // centre 5 % of fov across the screen. East is on the left, so Pan left increases RA at rotation 0.
@@ -122,8 +130,7 @@ var AstroFly = (function () {
       var g = ez(k / frames), p = radec(slerp(a, b, g));
       out.push({ ra: p.ra, dec: p.dec, fov: clampFov(f0 + (f1 - f0) * g) });
     }
-    out[0] = { ra: AstroSky.wrapRa(from.ra), dec: from.dec, fov: f0 };
-    out[frames] = { ra: AstroSky.wrapRa(to.ra), dec: to.dec, fov: f1 };
+    pinEnds(out, from, to, f0, f1);
     return out;
   }
 

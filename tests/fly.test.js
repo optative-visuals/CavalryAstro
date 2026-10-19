@@ -141,3 +141,33 @@ test("driftPath: eased halfway point matches gentle easing at 0.5", () => {
   const p = F.driftPath({ ra: 0, dec: 0, fov: 20 }, { ra: 10, dec: 0, fov: 40 }, 2, "gentle");
   near(p[1].fov, 30, 1e-9); near(p[1].ra, 5, 1e-6);
 });
+
+const raDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+
+test("pole endpoint: the RA jump at the last frame is under 1 degree (path to the pole)", () => {
+  const p = F.path({ ra: 0, dec: 40, fov: 30 }, { ra: 90, dec: 90, fov: 30 }, 60);
+  assert.ok(raDiff(p[59].ra, p[60].ra) < 1, `${p[59].ra} vs ${p[60].ra}`);
+  near(p[60].dec, 90); near(p[60].fov, 30);
+});
+
+test("pole endpoint: the RA jump at the first frame is under 1 degree (path from the pole)", () => {
+  const p = F.path({ ra: 45, dec: 90, fov: 30 }, { ra: 0, dec: 40, fov: 30 }, 60);
+  assert.ok(raDiff(p[0].ra, p[1].ra) < 1, `${p[0].ra} vs ${p[1].ra}`);
+  near(p[0].dec, 90); near(p[0].fov, 30);
+  near(p[60].ra, 0, 1e-9); near(p[60].dec, 40, 1e-9);
+});
+
+test("non-pole endpoints stay exact", () => {
+  const p = F.path({ ra: 83.8, dec: -5.4, fov: 30 }, { ra: 10.7, dec: 41.3, fov: 30 }, 40);
+  near(p[0].ra, 83.8); near(p[0].dec, -5.4); near(p[40].ra, 10.7); near(p[40].dec, 41.3);
+  const d = F.driftPath({ ra: 10, dec: 20, fov: 30 }, { ra: 30, dec: 60, fov: 20 }, 10);
+  near(d[0].ra, 10); near(d[10].ra, 30); near(d[10].dec, 60); near(d[10].fov, 20);
+});
+
+test("driftPath: pole endpoints take their neighbour's RA", () => {
+  const up = F.driftPath({ ra: 0, dec: 40, fov: 30 }, { ra: 90, dec: 90, fov: 30 }, 60, "smooth");
+  assert.ok(raDiff(up[59].ra, up[60].ra) < 1);
+  const down = F.driftPath({ ra: 45, dec: -90, fov: 30 }, { ra: 0, dec: -40, fov: 30 }, 60, "smooth");
+  assert.ok(raDiff(down[0].ra, down[1].ra) < 1);
+  near(down[0].dec, -90); near(down[0].fov, 30);
+});
