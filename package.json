@@ -1,0 +1,14 @@
+{
+  "name": "cavalry-astro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Night-sky motion design for Cavalry",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "node --test",
+    "build": "node tools/build.js",
+    "install-cavalry": "node tools/build.js && node tools/install.js",
+    "sky-data": "node tools/build-sky-data.js",
+    "package": "node tools/package.js"
+  }
+}
