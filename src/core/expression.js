@@ -112,6 +112,13 @@ var AstroExpression = (function () {
       v("compH") + ", _seen ? _p : null, " + v("offsetY") + ");\n";
   }
 
+  // The title's horizontal alignment from the reveal's title mode and corner (AstroReveal.alignmentOf).
+  var ALIGN_INPUTS = [["titleMode", 0], ["corner", 1]];
+  function titleAlignmentExpression(runtimeSrc, meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(ALIGN_INPUTS) +
+      "AstroReveal.alignmentOf(_i0, _i1);\n";
+  }
+
   // The spotlight: 100 minus the darkest dim of the reveals (their amounts and spotlights, from the inputs).
   function spotlightExpression(runtimeSrc, n, meta) {
     var pairs = [];
@@ -135,6 +142,8 @@ var AstroExpression = (function () {
     revealAmountExpression: revealAmountExpression,
     stageExpression: stageExpression,
     titlePositionExpression: titlePositionExpression,
+    ALIGN_INPUTS: ALIGN_INPUTS,
+    titleAlignmentExpression: titleAlignmentExpression,
     spotlightExpression: spotlightExpression,
     glowLevelExpression: glowLevelExpression,
     CAMERA_INPUTS: CAMERA_INPUTS,

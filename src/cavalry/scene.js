@@ -829,6 +829,17 @@ var AstroScene = (function () {
       applyStyle(title, { fill: theme.title });
       api.connect(pos, A.DRIVER_OUTPUT_ATTR, title, "position", true);
       api.connect(titleId, A.DRIVER_OUTPUT_ATTR, title, "opacity", true);
+      // The alignment follows the title's corner and mode, from the reveal's amount, and is set now as well.
+      var align = utilityLayer(groupId, "Reveal title alignment", E.titleAlignmentExpression(ASTRO_REVEAL_SRC, { category: "revealAlign" }),
+        E.ALIGN_INPUTS, {}, { category: "revealAlign" });
+      ["titleMode", "corner"].forEach(function (n) {
+        api.connect(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n),
+          align, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.ALIGN_INPUTS, n), true);
+      });
+      var mode = Number(api.get(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, "titleMode")));
+      var corner = Number(api.get(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, "corner")));
+      setOne(title, A.TEXT_ALIGN_ATTR, AstroReveal.alignmentOf(mode, corner));
+      api.connect(align, A.DRIVER_OUTPUT_ATTR, title, A.TEXT_ALIGN_ATTR, true);
       api.parent(title, groupId);
     }
   }

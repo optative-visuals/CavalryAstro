@@ -711,6 +711,20 @@ test("the sky's layers are found by their tags, without reading any layer's expr
   assert.equal(reveal.number, 1);
 });
 
+// The title's alignment is a utility fed by the reveal's title mode and corner, and it drives the title.
+test("the title's horizontal alignment follows its corner and mode: left corners left, centre corners centre, right corners right", () => {
+  const { api, context, reveal } = revealFixture();
+  const title = childNamed(api, reveal.groupId, "Title");
+  const align = childNamed(api, reveal.groupId, "Reveal title alignment");
+  assert.equal(api.get(title, "horizontalAlignment"), 1, "the default top-centre title is centred");
+  assert.equal(api.getInConnection(title, "horizontalAlignment"), align + ".id", "the title's alignment is driven by the utility");
+  const expr = String(api.get(align, "expression"));
+  const cases = [[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 0], [4, 0, 1], [5, 0, 2], [0, 1, 1], [5, 1, 1]];
+  cases.forEach(([corner, mode, want]) => {
+    assert.equal(runUtility(context, expr, { titleMode: mode, corner: corner }), want, "corner " + corner + " mode " + mode);
+  });
+});
+
 test("a second reveal of Orion is Reveal 2: Orion", () => {
   const { S, sky, orion } = revealFixture();
   const second = S.createReveal(sky, orion, ["lines"], 50, 25, {});

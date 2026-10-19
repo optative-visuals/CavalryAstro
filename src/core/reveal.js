@@ -46,6 +46,14 @@ var AstroReveal = (function () {
     return [place[c][0], place[c][1]];
   }
 
+  // The title's horizontal alignment (Cavalry: 0 left, 1 centre, 2 right) from its corner's column. A title that follows
+  // the constellation is centred on its point.
+  var ALIGNMENT = [0, 1, 2, 0, 1, 2];
+  function alignmentOf(mode, corner) {
+    if (mode === 1) return 1;
+    return ALIGNMENT[corner] !== undefined ? ALIGNMENT[corner] : ALIGNMENT[DEFAULT_CORNER];
+  }
+
   // When a reveal starts and how many frames it takes. If the last flight went to this constellation, the reveal
   // starts 40% of the way into that flight and ends with it. Otherwise it starts at the playhead and lasts compFps
   // frames (one second).
@@ -63,6 +71,7 @@ var AstroReveal = (function () {
     stage: stage,
     spotlightDim: spotlightDim,
     titlePosition: titlePosition,
+    alignmentOf: alignmentOf,
     revealTiming: revealTiming
   };
 })();

@@ -29,6 +29,7 @@ var AstroAttrs = {
   // Text: a textShape layer, with its label driven from an array.
   TEXT_LAYER_TYPE: "textShape",
   TEXT_ATTR: "text",
+  TEXT_ALIGN_ATTR: "horizontalAlignment",     // 0 left, 1 centre, 2 right
   LABEL_MODE: "driver",
   DRIVER_OUTPUT_ATTR: "id",
   DRIVER_RETURN: "array",
