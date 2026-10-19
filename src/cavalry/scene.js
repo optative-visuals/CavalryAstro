@@ -573,13 +573,15 @@ var AstroScene = (function () {
   }
 
   // Every reveal group in the sky, by number (oldest first for equal numbers).
+  // A reveal with no amount utility is broken (its amount was deleted by hand): it is not listed here, and
+  // prepareReveals removes it.
   function findReveals(s) {
     var out = [];
     api.getChildren(s.groupId).forEach(function (g) {
-      var rec = revealRecord(g);
-      if (!rec) return;
+      var rec = revealRecord(g), amountId = rec ? revealAmountOf(g) : null;
+      if (!rec || !amountId) return;
       out.push({ groupId: g, number: pickNumber(rec.number, 0), con: rec.con, parts: rec.parts || [],
-        amountId: revealAmountOf(g), name: String(api.getNiceName(g)) });
+        amountId: amountId, name: String(api.getNiceName(g)) });
     });
     return out.sort(function (a, b) { return a.number - b.number; });
   }
@@ -725,6 +727,8 @@ var AstroScene = (function () {
     var c = skyData().cons[conIndexOf(rec.con)];
     if (!c) throw new Error("The constellation of this reveal is not in the sky data.");
     var s = skyOfGroup(groupId), amountId = revealAmountOf(groupId), chosen = chosenParts(parts);
+    // Checked before anything is deleted: without its amount the reveal cannot be rebuilt.
+    if (!amountId) throw new Error("This reveal has no amount utility, so it cannot be changed. Delete it and make it again.");
     api.getChildren(groupId).forEach(function (k) { if (k !== amountId) api.deleteLayer(k); });
     if (amountId) setAmountSettings(amountId, opts || {});
     buildMembers(s, groupId, c, chosen, amountId);
@@ -769,10 +773,19 @@ var AstroScene = (function () {
   }
 
   // Drops the reveals whose group is gone, renumbers the rest, and rebuilds the Spotlight. Returns how many were dropped.
+  // A reveal whose group is still there but whose amount is gone is broken: its members and then its group are deleted.
   function prepareReveals(s) {
-    var live = api.getChildren(s.groupId), ids = registry(s);
-    var kept = ids.filter(function (g) { return live.indexOf(g) >= 0; });
-    var removed = ids.length - kept.length;
+    var live = api.getChildren(s.groupId), ids = registry(s), kept = [], removed = 0;
+    ids.forEach(function (g) {
+      if (live.indexOf(g) < 0) { removed++; return; }
+      if (!revealAmountOf(g)) {
+        api.getChildren(g).forEach(function (k) { api.deleteLayer(k); });
+        if (!api.getChildren(g).length) api.deleteLayer(g);
+        removed++;
+        return;
+      }
+      kept.push(g);
+    });
     api.setUserData(s.groupId, REVEALS_KEY, kept);
     renumber(findReveals(s));
     refreshSpotlight(s);

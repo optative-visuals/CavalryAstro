@@ -584,3 +584,34 @@ test("the title position expression puts a header title top-centre, and follows 
   const p = runUtility(context, expr, follows);
   assert.ok(Math.abs(p[0]) < 1 && Math.abs(p[1] - 80) < 1, "the centre of the view, lifted by offsetY: " + p);
 });
+
+// A reveal whose amount utility was deleted by hand is broken: the sky must still be connected to a Spotlight.
+test("deleting a reveal's amount by hand: prepareReveals removes the broken reveal and reconnects the sky to the Spotlight", () => {
+  const { api, S, sky, layers, reveal } = revealFixture();
+  api.deleteLayer(S.findReveals(sky)[0].amountId);
+  assert.equal(S.prepareReveals(sky), 1);
+  assert.equal(api.getLayerType(reveal.groupId) === "group" && api.getChildren(sky.groupId).indexOf(reveal.groupId), -1, "the broken group is gone");
+  const spot = childNamed(api, sky.groupId, "Spotlight");
+  assert.equal(api.getInConnection(layers.lines, "opacity"), spot + ".id", "the lines follow the new Spotlight");
+});
+
+test("after a second createReveal the sky's layers are driven by the NEW Spotlight, and there is one Spotlight", () => {
+  const { api, S, sky, layers, orion } = revealFixture();
+  api.deleteLayer(S.findReveals(sky)[0].amountId);
+  S.prepareReveals(sky);
+  S.createReveal(sky, orion, ["lines"], 50, 25, {});
+  const spots = api.getChildren(sky.groupId).filter((id) => api.getNiceName(id) === "Spotlight");
+  assert.equal(spots.length, 1, "exactly one Spotlight child");
+  assert.equal(api.getInConnection(layers.lines, "opacity"), spots[0] + ".id");
+  assert.equal(api.getInConnection(layers.glowLevel, "array.0"), spots[0] + ".id");
+});
+
+test("changeReveal on a reveal without its amount throws and deletes nothing", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const before = api.getChildren(reveal.groupId).slice();
+  api.deleteLayer(S.findReveals(sky)[0].amountId);
+  const kept = api.getChildren(reveal.groupId).slice();
+  assert.ok(kept.length > 0 && kept.length === before.length - 1, "only the amount is gone");
+  assert.throws(() => S.changeReveal(reveal.groupId, ["lines"], {}), /no amount utility/);
+  assert.deepEqual(api.getChildren(reveal.groupId).slice(), kept, "its members are still there");
+});
