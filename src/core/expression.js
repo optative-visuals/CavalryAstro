@@ -69,7 +69,73 @@ var AstroExpression = (function () {
     return "0;";
   }
 
+  // ---- Reveals and spotlight (Task 9). Utilities: each returns its value as the last expression. ----
+  // Amount % (0..100) keyed by the reveal's amount utility; the rest are its settings.
+  var REVEAL_INPUTS = [["amount", 0], ["spotlight", 60], ["titleMode", 0], ["corner", 1], ["margin", 60], ["offsetY", 80]];
+  // One staged part reads only the amount.
+  var STAGE_INPUTS = [["amount", 0]];
+  // The title's place: the reveal's settings, the constellation centre, the camera and the comp size.
+  var TITLE_INPUTS = [["titleMode", 0], ["corner", 1], ["margin", 60], ["offsetY", 80], ["conRa", 0], ["conDec", 0],
+    ["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["compW", 1920], ["compH", 1080]];
+  // The glow's opacity: the spotlight's visible share (0..100) of the glow level (0..100).
+  var GLOW_LEVEL_INPUTS = [["visible", 100], ["level", 60]];
+
+  // The Spotlight's inputs for n reveals: each reveal's amount, then its spotlight.
+  function spotlightInputs(n) {
+    var out = [];
+    for (var k = 0; k < n; k++) out.push(["amount" + k, 0], ["spotlight" + k, 60]);
+    return out;
+  }
+
+  function revealAmountExpression(meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(REVEAL_INPUTS) + "_i0;\n";
+  }
+
+  // One part's value from the amount: a percentage for the opacities, 0..1 for the lines' draw.
+  function stageExpression(runtimeSrc, part, meta) {
+    var scale = part === "lines" ? "" : " * 100";
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(STAGE_INPUTS) +
+      "AstroReveal.stage(_i0, AstroReveal.STAGES." + part + ")" + scale + ";\n";
+  }
+
+  // The title's [x, y]: projects the constellation centre through the camera, then AstroReveal.titlePosition.
+  // The projection is always stereographic here; the field of view is clamped so the projector never fails.
+  function titlePositionExpression(runtimeSrc, meta) {
+    var v = function (name) { return "_i" + inputIndex(TITLE_INPUTS, name); };
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(TITLE_INPUTS) +
+      "var _p = [0, 0];\n" +
+      "var _cam = {ra: " + v("camRa") + ", dec: " + v("camDec") + ", fov: Math.min(220, Math.max(0.5, " + v("camFov") + ")), rotation: " +
+      v("camRotation") + ", projection: 0};\n" +
+      "var _seen = AstroSky.makeProjector(_cam, " + v("compW") + ")(" + v("conRa") + ", " + v("conDec") + ", _p);\n" +
+      "AstroReveal.titlePosition(" + v("titleMode") + ", " + v("corner") + ", " + v("margin") + ", " + v("compW") + ", " +
+      v("compH") + ", _seen ? _p : null, " + v("offsetY") + ");\n";
+  }
+
+  // The spotlight: 100 minus the darkest dim of the reveals (their amounts and spotlights, from the inputs).
+  function spotlightExpression(runtimeSrc, n, meta) {
+    var pairs = [];
+    for (var k = 0; k < n; k++) {
+      pairs.push("{amount: _i" + (2 * k) + ", spotlight: _i" + (2 * k + 1) + "}");
+    }
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(spotlightInputs(n)) +
+      "100 - AstroReveal.spotlightDim([" + pairs.join(", ") + "]);\n";
+  }
+
+  function glowLevelExpression(meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(GLOW_LEVEL_INPUTS) + "_i0 * _i1 / 100;\n";
+  }
+
   return {
+    REVEAL_INPUTS: REVEAL_INPUTS,
+    STAGE_INPUTS: STAGE_INPUTS,
+    TITLE_INPUTS: TITLE_INPUTS,
+    GLOW_LEVEL_INPUTS: GLOW_LEVEL_INPUTS,
+    spotlightInputs: spotlightInputs,
+    revealAmountExpression: revealAmountExpression,
+    stageExpression: stageExpression,
+    titlePositionExpression: titlePositionExpression,
+    spotlightExpression: spotlightExpression,
+    glowLevelExpression: glowLevelExpression,
     CAMERA_INPUTS: CAMERA_INPUTS,
     SKY_INPUTS: SKY_INPUTS,
     STAR_INPUTS: STAR_INPUTS,

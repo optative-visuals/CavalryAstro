@@ -93,6 +93,14 @@ function addSceneApi(api) {
     },
     primitive: (kind, name) => api.create("basicShape", name),
     getCompLayers: () => layers.slice(),
+    deleteLayer: (id) => {
+      const gone = [id];
+      for (let i = 0; i < gone.length; i++) layers.filter((c) => parents[c] === gone[i]).forEach((c) => gone.push(c));
+      gone.forEach((g) => { const k = layers.indexOf(g); if (k >= 0) layers.splice(k, 1); delete parents[g]; });
+      for (let i = connections.length - 1; i >= 0; i--) {
+        if (gone.includes(connections[i][0]) || gone.includes(connections[i][2])) connections.splice(i, 1);
+      }
+    },
     parent: (id, parentId) => { parents[id] = parentId; },
     getParent: (id) => parents[id] || "",
     getChildren: (parentId) => layers.filter((id) => parents[id] === parentId).reverse(),
@@ -261,14 +269,14 @@ test("createSky makes one group holding a Camera, a background, star bands, a gl
   assert.ok(layers.bands.length >= 5, "at least five star bands");
   ["glow", "lines", "borders", "names"].forEach((k) => assert.ok(layers[k], k));
   // Camera, background, the bands, the glow and its blur filter, lines, borders, names.
-  assert.equal(api.getChildren(sky.groupId).length, layers.bands.length + 7);
+  assert.equal(api.getChildren(sky.groupId).length, layers.bands.length + 8);
 });
 
 test("the sky stacks from the bottom: camera, background, borders, lines, glow, stars, names", () => {
   const { api, sky, layers } = skyFixture();
   const bottomUp = api.getChildren(sky.groupId).slice().reverse().map((id) => api.getNiceName(id));
   const bands = layers.bands.map((id) => api.getNiceName(id));
-  const expected = ["Camera", "Sky background", "Constellation borders", "Constellation lines", "Star glow", "Star glow blur"]
+  const expected = ["Camera", "Sky background", "Constellation borders", "Constellation lines", "Star glow", "Star glow blur", "Star glow opacity"]
     .concat(bands, ["Constellation names"]);
   assert.deepEqual(bottomUp, expected);
 });
@@ -322,15 +330,18 @@ test("applyTheme with Mono makes every band the same colour", () => {
 test("a glow turned off stays off through star colour changes and theme changes", () => {
   const { api, S, sky, layers } = skyFixture();
   const full = 0.6 * 100;   // Realistic's glow
-  assert.equal(api.get(layers.glow, "opacity"), full, "on by default");
+  // The glow's opacity is driven by the Star glow opacity utility, whose level input holds the glow level.
+  const level = () => api.get(layers.glowLevel, "array.1");
+  assert.equal(api.getInConnection(layers.glow, "opacity"), layers.glowLevel + ".id", "the glow opacity is driven");
+  assert.equal(level(), full, "on by default");
   S.setGlow(sky, false);
-  assert.equal(api.get(layers.glow, "opacity"), 0);
+  assert.equal(level(), 0);
   S.setStarColours(sky, true);
-  assert.equal(api.get(layers.glow, "opacity"), 0, "star colours do not turn the glow back on");
+  assert.equal(level(), 0, "star colours do not turn the glow back on");
   S.applyTheme(sky, "Mono");
-  assert.equal(api.get(layers.glow, "opacity"), 0, "a theme change does not turn the glow back on");
+  assert.equal(level(), 0, "a theme change does not turn the glow back on");
   S.setGlow(sky, true);
-  assert.equal(api.get(layers.glow, "opacity"), 0.2 * 100, "Mono's glow, restored");
+  assert.equal(level(), 0.2 * 100, "Mono's glow, restored");
 });
 
 test("applyTheme leaves an animated lines colour alone and counts it as skipped", () => {
@@ -447,4 +458,129 @@ test("jumpCamera sets the camera's centre and field of view", () => {
   assert.equal(cam.ra, 10);
   assert.equal(cam.dec, 37);
   assert.equal(cam.fov, 30);
+});
+
+// ---- Reveals and spotlight (Task 9) ------------------------------------------------------------------
+const REVEAL_PARTS = ["lines", "border", "title", "labels"];
+
+// A sky with Orion revealed over frames 10 to 35 with every part, and the reveal.
+function revealFixture() {
+  const f = skyFixture();
+  const orion = consIndex(f.context, "Orion");
+  const reveal = f.S.createReveal(f.sky, orion, REVEAL_PARTS, 10, 25, { titleMode: 0 });
+  return Object.assign(f, { orion: orion, reveal: reveal });
+}
+// The children of a group by nice name, and the child with a name.
+function namesIn(api, groupId) { return api.getChildren(groupId).map((id) => api.getNiceName(id)); }
+function childNamed(api, groupId, name) { return api.getChildren(groupId).filter((id) => api.getNiceName(id) === name)[0]; }
+
+test("createReveal makes Reveal 1: Orion inside the sky, with its amount keyed 0 at the start and 100 at the end", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  assert.equal(api.getNiceName(reveal.groupId), "Reveal 1: Orion");
+  assert.equal(reveal.number, 1);
+  assert.equal(api.getParent(reveal.groupId), sky.groupId);
+  const amount = S.findReveals(sky)[0].amountId;
+  assert.deepEqual(api.getKeyframeTimes(amount, "array.0"), [10, 35]);
+  assert.equal(api.get(amount, "array.0"), 0);
+});
+
+test("createReveal makes the members: the amount, the staged utilities, lines, border with a blur copy, bands, labels and title", () => {
+  const { api, reveal } = revealFixture();
+  const names = namesIn(api, reveal.groupId);
+  ["Reveal amount", "Reveal border opacity", "Reveal lines draw", "Reveal labels opacity", "Reveal title opacity",
+    "Reveal title position", "Reveal lines", "Reveal border", "Reveal border glow", "Reveal labels", "Title"]
+    .forEach((n) => assert.ok(names.indexOf(n) >= 0, n));
+  assert.ok(names.some((n) => /^Reveal stars · band \d$/.test(n)), "a reveal star layer per band present");
+  const title = childNamed(api, reveal.groupId, "Title");
+  assert.equal(api.getLayerType(title), "textShape");
+  assert.equal(api.get(title, "text"), "Orion", "Realistic writes names in title case");
+});
+
+test("the reveal star layers ignore the darkness limit", () => {
+  const { api, reveal } = revealFixture();
+  const star = api.getChildren(reveal.groupId).filter((id) => /^Reveal stars/.test(api.getNiceName(id)))[0];
+  assert.ok(String(api.get(star, "generator.expression")).indexOf("ignoreLimit: true") >= 0);
+});
+
+test("a second reveal of Orion is Reveal 2: Orion", () => {
+  const { S, sky, orion } = revealFixture();
+  const second = S.createReveal(sky, orion, ["lines"], 50, 25, {});
+  assert.equal(second.number, 2);
+  assert.equal(S.findReveals(sky).map((r) => r.number).join(","), "1,2");
+});
+
+test("the lines draw is fed by the lines stage, and every stage reads the one amount", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const amount = S.findReveals(sky)[0].amountId;
+  const draw = childNamed(api, reveal.groupId, "Reveal lines draw");
+  const lines = childNamed(api, reveal.groupId, "Reveal lines");
+  assert.equal(api.getInConnection(lines, "generator.array." + E.inputIndex(E.LINE_INPUTS, "draw")), draw + ".id");
+  assert.equal(api.getInConnection(draw, "array.0"), amount + ".array.0");
+  const border = childNamed(api, reveal.groupId, "Reveal border");
+  assert.equal(api.getInConnection(border, "opacity"), childNamed(api, reveal.groupId, "Reveal border opacity") + ".id");
+});
+
+test("the whole-sky lines, borders, names, bands and the glow level are driven by the Spotlight output", () => {
+  const { api, sky, layers } = revealFixture();
+  const spot = childNamed(api, sky.groupId, "Spotlight");
+  assert.ok(spot, "a Spotlight utility in the sky group");
+  ["lines", "borders", "names"].forEach((k) => assert.equal(api.getInConnection(layers[k], "opacity"), spot + ".id", k));
+  layers.bands.forEach((id) => assert.equal(api.getInConnection(id, "opacity"), spot + ".id"));
+  assert.equal(api.getInConnection(layers.glowLevel, "array.0"), spot + ".id", "the glow scales by the same spotlight");
+});
+
+test("after deleting Reveal 1, prepareReveals returns 1, Reveal 2 keeps its number, and the Spotlight has only Reveal 2's inputs", () => {
+  const { api, S, sky, orion, reveal } = revealFixture();
+  const second = S.createReveal(sky, orion, ["lines"], 50, 25, {});
+  api.deleteLayer(reveal.groupId);
+  assert.equal(S.prepareReveals(sky), 1);
+  assert.equal(api.getNiceName(second.groupId), "Reveal 2: Orion", "numbers are not compacted, as in Geo");
+  const spot = childNamed(api, sky.groupId, "Spotlight");
+  const amount2 = S.findReveals(sky)[0].amountId;
+  assert.equal(api.getInConnection(spot, "array.0"), amount2 + ".array.0", "the amount of Reveal 2");
+  assert.equal(api.getInConnection(spot, "array.1"), amount2 + ".array.1", "the spotlight of Reveal 2");
+  assert.equal(api.hasAttribute(spot, "array.2"), false, "no input for the deleted reveal");
+});
+
+test("changeReveal dropping the title removes the Title layer, keeps the amount keys and the number", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const amount = S.findReveals(sky)[0].amountId;
+  S.changeReveal(reveal.groupId, ["lines", "border", "labels"], {});
+  assert.equal(childNamed(api, reveal.groupId, "Title"), undefined);
+  assert.equal(api.getNiceName(reveal.groupId), "Reveal 1: Orion");
+  assert.deepEqual(api.getKeyframeTimes(amount, "array.0"), [10, 35]);
+  assert.ok(childNamed(api, reveal.groupId, "Reveal labels"), "the labels stay");
+});
+
+// The utility expressions run in the panel's context: their inputs are the globals named by each input.
+function runUtility(context, expr, values) {
+  Object.assign(context, values);
+  return vm.runInContext(expr, context);
+}
+
+test("the Spotlight expression dims the sky by the largest reveal spotlight, scaled by the border stage", () => {
+  const { api, sky, context } = revealFixture();
+  const expr = String(api.get(childNamed(api, sky.groupId, "Spotlight"), "expression"));
+  assert.equal(runUtility(context, expr, { amount0: 0, spotlight0: 60 }), 100, "nothing revealed: no dim");
+  assert.equal(runUtility(context, expr, { amount0: 100, spotlight0: 60 }), 40, "fully revealed: 100 - 60");
+  assert.equal(runUtility(context, expr, { amount0: 20, spotlight0: 90 }), 55, "half the border stage: 100 - 45");
+});
+
+test("the stage expressions give the part's value from the amount: a percentage for opacity, 0 to 1 for draw", () => {
+  const { api, reveal, context } = revealFixture();
+  const stageExpr = (name) => String(api.get(childNamed(api, reveal.groupId, name), "expression"));
+  assert.equal(runUtility(context, stageExpr("Reveal border opacity"), { amount: 45 }), 100, "border done by 40");
+  assert.equal(runUtility(context, stageExpr("Reveal labels opacity"), { amount: 70 }), 50, "labels half way");
+  assert.equal(runUtility(context, stageExpr("Reveal title opacity"), { amount: 75 }), 0, "title starts at 75");
+  assert.equal(runUtility(context, stageExpr("Reveal lines draw"), { amount: 45 }), 0.5, "lines half way");
+});
+
+test("the title position expression puts a header title top-centre, and follows the constellation when asked", () => {
+  const { api, reveal, context } = revealFixture();
+  const expr = String(api.get(childNamed(api, reveal.groupId, "Reveal title position"), "expression"));
+  const header = { titleMode: 0, corner: 1, margin: 60, offsetY: 80, conRa: 83, conDec: 6, camRa: 83, camDec: 6, camFov: 60, camRotation: 0, compW: 1920, compH: 1080 };
+  assert.deepEqual([...runUtility(context, expr, header)], [0, 480]);
+  const follows = Object.assign({}, header, { titleMode: 1 });
+  const p = runUtility(context, expr, follows);
+  assert.ok(Math.abs(p[0]) < 1 && Math.abs(p[1] - 80) < 1, "the centre of the view, lifted by offsetY: " + p);
 });
