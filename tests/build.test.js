@@ -254,6 +254,17 @@ function addSceneApi(api) {
     _store: store,
     _paints: paints
   });
+  // Cavalry returns a material or stroke colour as {r, g, b, a}, not a hex string (Geo's verified API notes). The fake
+  // does the same, so the code under test meets the real shape: a hex value written is read back as an object.
+  const COLOUR_ATTRS = ["material.materialColor", "stroke.strokeColor"];
+  const plainGet = api.get;
+  api.get = (id, attr) => {
+    const v = plainGet(id, attr);
+    if (COLOUR_ATTRS.indexOf(attr) >= 0 && typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) {
+      return { r: parseInt(v.slice(1, 3), 16), g: parseInt(v.slice(3, 5), 16), b: parseInt(v.slice(5, 7), 16), a: 255 };
+    }
+    return v;
+  };
   return api;
 }
 
@@ -416,7 +427,7 @@ test("setDarkness sets the darkness input of every star layer", () => {
 test("applyTheme with Mono makes every band the same colour", () => {
   const { api, S, sky, layers } = skyFixture();
   S.applyTheme(sky, "Mono");
-  const fills = new Set(layers.bands.map((id) => api.get(id, "material.materialColor")));
+  const fills = new Set(layers.bands.map((id) => JSON.stringify(api.get(id, "material.materialColor"))));
   assert.equal(fills.size, 1);
 });
 
@@ -441,7 +452,7 @@ test("applyTheme leaves an animated lines colour alone and counts it as skipped"
   const { api, S, sky, layers } = skyFixture();
   api.keyframe(layers.lines, 0, { "stroke.strokeColor": "#ff0000" });
   const r = S.applyTheme(sky, "Mono");
-  assert.equal(api.get(layers.lines, "stroke.strokeColor"), "#ff0000");
+  assert.deepEqual(api.get(layers.lines, "stroke.strokeColor"), { r: 255, g: 0, b: 0, a: 255 }, "Cavalry shape: {r, g, b, a}");
   assert.ok(r.skipped >= 1, "skipped counts the animated colour");
   assert.ok(r.changed > 0, "the rest of the sky is changed");
 });
@@ -1056,6 +1067,7 @@ test("readSkyTheme reads the live lines colour through a link, and is named", ()
   const { api, S, sky, layers } = skyFixture();
   linkedValue(api, layers.lines, "stroke.strokeColor", "#ff8800");
   const theme = S.readSkyTheme(sky, "Mine");
+  assert.deepEqual(api.get(layers.lines, "stroke.strokeColor"), { r: 255, g: 136, b: 0, a: 255 }, "read as a Cavalry colour object");
   assert.equal(theme.lines, "#ff8800");
   assert.equal(theme.name, "Mine");
   assert.equal(theme.borders, S.skyTheme(sky).borders, "a colour not changed keeps the stored theme's");

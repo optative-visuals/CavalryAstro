@@ -294,10 +294,10 @@ var AstroScene = (function () {
   function readSkyTheme(s, name) {
     var base = themeOf(s), L = skyLayers(s), out = {}, bands = [];
     Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    // Cavalry returns a colour as {r, g, b, a}; AstroStyles.toHex makes it "#rrggbb". Not a colour: the fallback.
     function hexOr(id, attr, fallback) {
       if (!id) return fallback;
-      var v = api.get(id, attr);
-      return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
+      return AstroStyles.toHex(api.get(id, attr)) || fallback;
     }
     function numOr(id, attr, fallback) {
       if (!id) return fallback;

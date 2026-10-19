@@ -83,3 +83,12 @@ test("previewColors gives the six preview keys with the green frame", () => {
   assert.equal(p.frame, "#2fbf71");
   assert.match(p.star, HEX);
 });
+
+test("toHex: a hex string or a Cavalry colour object {r, g, b, a} gives #rrggbb; anything else gives null", () => {
+  assert.equal(T.toHex("#FF8800"), "#FF8800");
+  assert.equal(T.toHex("#ff880080"), "#ff8800", "the alpha of a hex string is dropped");
+  assert.equal(T.toHex({ r: 255, g: 136, b: 0, a: 255 }), "#ff8800");
+  assert.equal(T.toHex({ a: 255, b: 0, g: 0, r: 255 }), "#ff0000", "key order does not matter");
+  assert.equal(T.toHex("red"), null);
+  assert.equal(T.toHex(undefined), null);
+});

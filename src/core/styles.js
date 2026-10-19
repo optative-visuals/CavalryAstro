@@ -90,8 +90,21 @@ var AstroStyles = (function () {
     };
   }
 
+  // A colour as "#rrggbb", from a hex string (any alpha is dropped) or a Cavalry colour object {r, g, b, a} (as
+  // api.get returns a material or stroke colour). Null for anything else.
+  function toHex(v) {
+    if (v && typeof v === "object" && v.r !== undefined) {
+      return "#" + [v.r, v.g, v.b].map(function (n) {
+        var s = Math.max(0, Math.min(255, Math.round(Number(n) || 0))).toString(16);
+        return s.length < 2 ? "0" + s : s;
+      }).join("");
+    }
+    if (typeof v === "string" && /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(v)) return v.slice(0, 7);
+    return null;
+  }
+
   return {
-    ROLES: ROLES, WIDTH_ROLES: WIDTH_ROLES, KEYS: KEYS, BUILT_IN: BUILT_IN,
+    ROLES: ROLES, WIDTH_ROLES: WIDTH_ROLES, KEYS: KEYS, BUILT_IN: BUILT_IN, toHex: toHex,
     normalise: normalise, builtIn: builtIn, isBuiltIn: isBuiltIn, find: find, names: names,
     starColours: starColours, previewColors: previewColors
   };
