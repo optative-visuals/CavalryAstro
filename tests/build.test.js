@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
-const { buildPanel, buildRuntimeSource, ROOT, CAVALRY_FILES } = require("../tools/buildlib.js");
+const { buildPanel, buildRuntimeSource, ROOT, CAVALRY_FILES, RUNTIMES } = require("../tools/buildlib.js");
 
 // A minimal in-memory Cavalry stub: settings files, a timer, and nothing else the placeholder panel
 // and its update check touch. Later tasks add to it as the panel grows.
@@ -222,6 +222,14 @@ test("the panel bundle embeds ASTRO_SKY_SRC", () => {
   const cavalryStart = src.indexOf(fs.readFileSync(path.join(ROOT, CAVALRY_FILES[0]), "utf8"));
   assert.ok(src.indexOf("var AstroExpression") < src.indexOf("var ASTRO_SKY_SRC = "), "after the core files");
   assert.ok(src.indexOf("var ASTRO_SKY_SRC = ") < cavalryStart, "before the cavalry files");
+});
+
+test("the panel bundle embeds ASTRO_REVEAL_SRC: the sky maths and the reveal maths, and carries reveal.js as core", () => {
+  const src = buildPanel();
+  assert.ok(src.includes("var ASTRO_REVEAL_SRC = " + JSON.stringify(buildRuntimeSource("reveal")) + ";"));
+  assert.deepEqual(RUNTIMES.reveal, ["src/core/sky.js", "src/core/reveal.js"]);
+  assert.ok(src.includes("var AstroReveal = (function"), "reveal.js is in the core files");
+  assert.ok(src.indexOf("var AstroReveal = (function") < src.indexOf("var ASTRO_REVEAL_SRC = "));
 });
 
 // ---- The sky (Task 7) -------------------------------------------------------------------------------
