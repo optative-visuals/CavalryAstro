@@ -175,7 +175,7 @@ var AstroScene = (function () {
   function createSky(name, cam, themeName) {
     var theme = themeFor(themeName), c = cleanCamera(cam), data = skyData();
     var groupId = api.create("group", name);
-    api.setUserData(groupId, SKY_KEY, { v: SKY_VERSION, theme: theme });
+    saveSky({ groupId: groupId }, theme, true);
     var cameraId = cameraLayer(groupId, c);
     backgroundLayer(groupId, theme);
     var borders = skyShape(groupId, cameraId, NAMES.borders, "border", bordersData(data.cons), { category: "borders" }, c);
@@ -238,7 +238,9 @@ var AstroScene = (function () {
     var d = userData(s.groupId, SKY_KEY);
     return themeFor(d && d.theme ? d.theme : "Realistic");
   }
-  function saveTheme(s, theme) { api.setUserData(s.groupId, SKY_KEY, { v: SKY_VERSION, theme: theme }); }
+  // The glow is on unless the user turned it off (glow: false); both settings live in the sky's user data.
+  function glowOn(s) { var d = userData(s.groupId, SKY_KEY); return !(d && d.glow === false); }
+  function saveSky(s, theme, glow) { api.setUserData(s.groupId, SKY_KEY, { v: SKY_VERSION, theme: theme, glow: glow !== false }); }
 
   // The camera's five values, as set by the panel.
   function readCamera(s) {
@@ -280,6 +282,7 @@ var AstroScene = (function () {
 
   function setGlow(s, on) {
     var L = skyLayers(s);
+    saveSky(s, themeOf(s), !!on);
     if (L.glow) setOne(L.glow, "opacity", on ? themeOf(s).glow * 100 : 0);
   }
 
@@ -324,8 +327,9 @@ var AstroScene = (function () {
       write(id, A.FILL_COLOR_ATTR, A.COLOR_VALUE(colours[m.band]));
     });
     write(L.glow, A.FILL_COLOR_ATTR, A.COLOR_VALUE(AstroStyles.previewColors(t).star));
-    write(L.glow, "opacity", t.glow * 100);
-    saveTheme(s, t);
+    var glow = glowOn(s);
+    write(L.glow, "opacity", glow ? t.glow * 100 : 0);
+    saveSky(s, t, glow);
     return tally;
   }
 

@@ -295,6 +295,20 @@ test("applyTheme with Mono makes every band the same colour", () => {
   assert.equal(fills.size, 1);
 });
 
+test("a glow turned off stays off through star colour changes and theme changes", () => {
+  const { api, S, sky, layers } = skyFixture();
+  const full = 0.6 * 100;   // Realistic's glow
+  assert.equal(api.get(layers.glow, "opacity"), full, "on by default");
+  S.setGlow(sky, false);
+  assert.equal(api.get(layers.glow, "opacity"), 0);
+  S.setStarColours(sky, true);
+  assert.equal(api.get(layers.glow, "opacity"), 0, "star colours do not turn the glow back on");
+  S.applyTheme(sky, "Mono");
+  assert.equal(api.get(layers.glow, "opacity"), 0, "a theme change does not turn the glow back on");
+  S.setGlow(sky, true);
+  assert.equal(api.get(layers.glow, "opacity"), 0.2 * 100, "Mono's glow, restored");
+});
+
 test("applyTheme leaves an animated lines colour alone and counts it as skipped", () => {
   const { api, S, sky, layers } = skyFixture();
   api.keyframe(layers.lines, 0, { "stroke.strokeColor": "#ff0000" });
