@@ -49,7 +49,8 @@ var AstroExpression = (function () {
     var v = function (name) { return "_i" + inputIndex(inputs, name); };
     var frame = v("compW");
     var args;
-    if (kind === "stars") args = "{darkness: " + v("darkness") + ", size: " + v("size") + ", ignoreLimit: " + (o.ignoreLimit ? "true" : "false") + "}";
+    if (kind === "stars") args = "{darkness: " + v("darkness") + ", size: " + v("size") + ", ignoreLimit: " + (o.ignoreLimit ? "true" : "false") +
+      ", sizeScale: " + (o.sizeScale || 1) + "}";
     else if (kind === "lines") args = "{draw: " + v("draw") + "}";
     else if (kind === "texts") args = "{size: " + v("textSize") + ", dx: " + v("dx") + ", dy: " + v("dy") + "}";
     else args = "{}";

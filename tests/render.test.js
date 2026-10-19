@@ -118,3 +118,11 @@ test("a bad camera never throws: projection falls back to 0, fov is clamped", ()
   assert.doesNotThrow(() => R.lines({ lines: [[[80, 0], [90, 0]]] }, { ra: 0, dec: 0, fov: 400, projection: 9 }, W, { draw: 1 }, FakePath));
   assert.doesNotThrow(() => R.border({ rings: [] }, null, W, {}, FakePath));
 });
+
+test("stars: a sizeScale multiplies the size input, so the glow draws at 3 times the bands' radius", () => {
+  const star = { ra: [83.8], dec: [-5.4], mag: [1] };
+  const band = ops(R.stars(star, ORION_VIEW, W, { darkness: 100, size: 1 }, FakePath), "E")[0];
+  const glow = ops(R.stars(star, ORION_VIEW, W, { darkness: 100, size: 1, sizeScale: 3 }, FakePath), "E")[0];
+  assert.ok(band && glow);
+  assert.ok(Math.abs(glow[3] - 3 * band[3]) < 1e-9, "radius " + glow[3] + " vs " + band[3]);
+});

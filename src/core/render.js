@@ -69,7 +69,8 @@ var AstroRender = (function () {
     var d = data || {};
     var ras = d.ra || [], decs = d.dec || [], mags = d.mag || [];
     var limit = o.ignoreLimit ? 99 : AstroStars.limitFor(finite(o.darkness, 100));
-    var size = finite(o.size, 1);
+    // The size input is shared by a layer kind's stars; sizeScale is the layer's own multiple of it (the glow's 3).
+    var size = finite(o.size, 1) * finite(o.sizeScale, 1);
     var project = projectorFor(cam, frameW), out = [0, 0];
     for (var i = 0; i < ras.length; i++) {
       var r = AstroStars.radius(mags[i], limit, size);

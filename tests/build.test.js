@@ -78,6 +78,13 @@ function addSceneApi(api) {
   // A component's promoted attributes: { src: "layer.attr", name, notes } in list order (Cavalry's promotedAttributes).
   const promos = {};
   const promoRef = (k) => /^promotedAttributes\.(\d+)\.(name|notes)$/.exec(String(k));
+  // The [layer, attr] an input is connected from (the latest connection), or null.
+  const sourceOf = (id, attr) => {
+    for (let i = connections.length - 1; i >= 0; i--) {
+      if (connections[i][2] === id && connections[i][3] === attr) return [connections[i][0], connections[i][1]];
+    }
+    return null;
+  };
   let nextId = 1, selection = [], frame = 0;
   const ensure = (id) => store[id] || (store[id] = {});
   const layerType = (id) => String(id).split("#")[0];
@@ -128,6 +135,9 @@ function addSceneApi(api) {
       if (id === COMP && attr === "resolution") return { x: 1920, y: 1080 };
       const pm = promoRef(attr);
       if (pm && promos[id] && promos[id][Number(pm[1])]) return promos[id][Number(pm[1])][pm[2]];
+      // Like Cavalry: an input fed by a utility's array output reads that output's value, not its own.
+      const fed = sourceOf(id, attr);
+      if (fed && /^array\.\d+$/.test(fed[1])) return api.get(fed[0], fed[1]);
       // A keyed attribute holds its last key at or before the playhead (the first key before any).
       const k = keyframes[id] && keyframes[id][attr];
       if (k && Object.keys(k).length) {
@@ -747,3 +757,30 @@ test("syncing again changes nothing", () => {
 function syncNow(context, sky) {
   return context.AstroControlPanel.sync(sky);
 }
+
+// ---- Controls fix round 1: the glow's size, and scene writes that reach the Controls' values -------------
+// The size a star layer draws with: its size input times the scale its expression gives (1 when none).
+function effectiveSize(api, id) {
+  const scale = /sizeScale: (\d+)/.exec(String(api.get(id, "generator.expression")));
+  return Number(api.get(id, "generator.array.8")) * (scale ? Number(scale[1]) : 1);
+}
+
+test("the glow's base size equals the bands', and its expression draws it at 3 times that", () => {
+  const { api, layers } = skyFixture();
+  assert.equal(api.get(layers.glow, "generator.array.8"), api.get(layers.bands[0], "generator.array.8"));
+  assert.equal(api.get(layers.bands[0], "generator.array.8"), 1);
+  assert.equal(effectiveSize(api, layers.glow), 3 * effectiveSize(api, layers.bands[0]));
+});
+
+test("setDarkness writes the Controls input the bands and glow read: every effective darkness is 0", () => {
+  const { api, S, sky, layers } = skyFixture();
+  S.setDarkness(sky, 0);
+  layers.bands.concat([layers.glow]).forEach((id) => assert.equal(api.get(id, "generator.array.7"), 0, api.getNiceName(id)));
+});
+
+test("setStarSize writes the Controls input: the bands draw at the size, the glow at 3 times it", () => {
+  const { api, S, sky, layers } = skyFixture();
+  S.setStarSize(sky, 2);
+  layers.bands.forEach((id) => assert.equal(effectiveSize(api, id), 2, api.getNiceName(id)));
+  assert.equal(effectiveSize(api, layers.glow), 6);
+});

@@ -28,6 +28,16 @@ var AstroScene = (function () {
   }
   function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
 
+  // Writes an input the way Cavalry reads it: an input fed by a utility's output (a Controls value) takes the value
+  // at that source, since a write to the fed input itself has no effect. Other inputs are written directly.
+  function writeInput(id, attr, value) {
+    var from = "";
+    try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
+    var at = from.indexOf(".");
+    if (at > 0 && /^array\.\d+$/.test(from.slice(at + 1))) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
+    setOne(id, attr, value);
+  }
+
   // Brings a sky's Controls up to date after a scene action (the panel script may load after this one: a missing panel is skipped).
   // Returns the panel's result, or null.
   function syncControls(s) {
@@ -214,7 +224,7 @@ var AstroScene = (function () {
     setOne(borders, "hidden", true);
     var lines = skyShape(groupId, cameraId, NAMES.lines, "lines", linesData(data.cons), { category: "lines" }, c);
     applyStyle(lines, { stroke: theme.lines, width: theme.linesWidth });
-    var glow = skyShape(groupId, cameraId, NAMES.glow, "stars", glowStars(data.stars), { category: "glow" }, c, { size: GLOW_SIZE });
+    var glow = skyShape(groupId, cameraId, NAMES.glow, "stars", glowStars(data.stars), { category: "glow" }, c, null, { sizeScale: GLOW_SIZE });
     applyStyle(glow, { fill: AstroStyles.previewColors(theme).star });
     glowBlur(groupId, glow);
     glowLevelLayer(groupId, glow, theme.glow * 100);
@@ -294,7 +304,7 @@ var AstroScene = (function () {
   // Sets one star input on every star layer (bands and glow); valueOf(id) gives each layer's value.
   function setStarInput(s, name, valueOf) {
     var L = skyLayers(s), ids = L.bands.concat(L.glow ? [L.glow] : []), idx = E.inputIndex(E.STAR_INPUTS, name);
-    ids.forEach(function (id) { setOne(id, A.SHAPE_ARRAY_ATTR + "." + idx, valueOf(id)); });
+    ids.forEach(function (id) { writeInput(id, A.SHAPE_ARRAY_ATTR + "." + idx, valueOf(id)); });
   }
 
   function setDarkness(s, value) {
@@ -302,10 +312,10 @@ var AstroScene = (function () {
     setStarInput(s, "darkness", function () { return v; });
   }
 
-  // The bands and the glow are the star size; the glow is GLOW_SIZE times the bands.
+  // The bands and the glow share one size input. The glow draws at GLOW_SIZE times it (its layer's sizeScale).
   function setStarSize(s, value) {
-    var v = numberOr(value, 1), L = skyLayers(s);
-    setStarInput(s, "size", function (id) { return id === L.glow ? v * GLOW_SIZE : v; });
+    var v = numberOr(value, 1);
+    setStarInput(s, "size", function () { return v; });
   }
 
   // True colours (on) or the theme's one star colour (off), kept in the sky's theme.
@@ -318,7 +328,7 @@ var AstroScene = (function () {
   function setGlow(s, on) {
     var L = skyLayers(s);
     saveSky(s, themeOf(s), !!on);
-    if (L.glowLevel) setOne(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", on ? themeOf(s).glow * 100 : 0);
+    if (L.glowLevel) writeInput(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", on ? themeOf(s).glow * 100 : 0);
   }
 
   // Shows or hides one of the lines, borders or names.
@@ -716,7 +726,7 @@ var AstroScene = (function () {
   function setAmountSettings(amountId, o) {
     ["spotlight", "titleMode", "corner", "margin", "offsetY"].forEach(function (n) {
       if (o[n] === undefined) return;
-      setOne(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n), Number(o[n]));
+      writeInput(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n), Number(o[n]));
     });
   }
 
