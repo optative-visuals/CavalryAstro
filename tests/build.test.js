@@ -451,6 +451,26 @@ test("applyTheme with Mono makes every band the same colour", () => {
   assert.equal(fills.size, 1);
 });
 
+// applyTheme re-cases the whole-sky names with the theme, and the glow level of a theme survives a glow switched off.
+test("applyTheme re-cases the whole-sky names: Realistic to Mono makes them upper case", () => {
+  const { api, S, sky, layers } = skyFixture();
+  const before = embeddedData(api, layers.names).items.map((it) => it[0]);
+  assert.ok(before.indexOf("Andromeda") >= 0, "Realistic writes Andromeda in title case");
+  S.applyTheme(sky, "Mono");
+  const after = embeddedData(api, layers.names).items.map((it) => it[0]);
+  assert.ok(after.indexOf("ANDROMEDA") >= 0, "Mono writes ANDROMEDA");
+  assert.equal(after.indexOf("Andromeda"), -1);
+  assert.equal(after.length, before.length, "the same constellations, re-cased");
+});
+
+test("readSkyTheme keeps the theme's glow level when the glow is off, not 0", () => {
+  const { S, sky } = skyFixture();
+  S.setGlow(sky, false);
+  const base = S.skyTheme(sky);
+  assert.ok(base.glow > 0, "Realistic has a glow level");
+  assert.equal(S.readSkyTheme(sky, "Saved").glow, base.glow);
+});
+
 test("a glow turned off stays off through star colour changes and theme changes", () => {
   const { api, S, sky, layers } = skyFixture();
   const full = 0.6 * 100;   // Realistic's glow
@@ -1082,6 +1102,18 @@ test("Fly here from frame 0 to 100 keys the camera on Orion and records a flight
   assert.equal(to.getValue(), 200, "To moves on by the flight's length");
 });
 
+test("Fly here with To not after From says so in From and To, not Start and End", () => {
+  const { ui } = runPanel();
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const [from, to] = numericFields(ui);
+  from.setValue(50);
+  to.setValue(50);
+  findButton(ui, "Fly here").onClick();
+  assert.ok(statusText(ui).indexOf("To at least 1 frame after From") >= 0, statusText(ui));
+  assert.equal(/Start|End/.test(statusText(ui)), false, statusText(ui));
+});
+
 test("Fly here past the comp end asks first, and on No it changes nothing", () => {
   const { api, ui, context } = runPanel();
   const S = context.AstroScene;
@@ -1098,6 +1130,7 @@ test("Fly here past the comp end asks first, and on No it changes nothing", () =
   assert.deepEqual(api.getKeyframeTimes(sky.cameraId, "array.0"), [], "no camera keys");
   assert.equal(S.lastFlight(sky), null);
   assert.ok(statusText(ui).indexOf("Cancelled") === 0, "the status line says so");
+  assert.ok(statusText(ui).indexOf("To frame of 100") >= 0, "and names the To frame to set: " + statusText(ui));
 });
 
 test("Fly here past the comp end on Yes extends the comp once, by the 3-second pad only", () => {

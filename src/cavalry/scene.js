@@ -327,7 +327,8 @@ var AstroScene = (function () {
     var mono = bands.length > 0 && bands.every(function (c) { return c !== null && c === bands[0]; });
     if (mono) { out.starMode = "mono"; out.starColour = bands[0]; }
     else if (bands.length) out.starMode = "true";
-    if (L.glowLevel) out.glow = numOr(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", base.glow * 100) / 100;
+    // With the glow off the level reads 0, so the theme's own level is kept for when it is turned back on.
+    if (L.glowLevel) out.glow = glowOn(s) ? numOr(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", base.glow * 100) / 100 : base.glow;
     out.name = name;
     return AstroStyles.normalise(out);
   }
@@ -369,6 +370,11 @@ var AstroScene = (function () {
     var at = from.indexOf(".");
     if (at < 0 || from.slice(at + 1) === A.DRIVER_OUTPUT_ATTR) return null;
     return { id: from.slice(0, at), attr: from.slice(at + 1) };
+  }
+
+  // The whole-sky names layer's expression, with its constellation names in the case given.
+  function namesExpression(nameCase) {
+    return E.layerExpression(ASTRO_SKY_SRC, "texts", namesData(skyData().cons, nameCase), { category: "names" });
   }
 
   // Sets one star input on every star layer (bands and glow, and any extra ids); valueOf(id) gives each layer's value.
@@ -457,6 +463,8 @@ var AstroScene = (function () {
       write(id, A.FILL_COLOR_ATTR, A.COLOR_VALUE(colours[m.band]));
     });
     write(L.glow, A.FILL_COLOR_ATTR, A.COLOR_VALUE(AstroStyles.previewColors(t).star));
+    // The whole-sky names are written in the theme's case, so a change of case rewrites their text.
+    if (L.names && themeOf(s).nameCase !== t.nameCase) setOne(L.names, A.SHAPE_EXPR_ATTR, namesExpression(t.nameCase));
     var glow = glowOn(s);
     write(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", glow ? t.glow * 100 : 0);
     saveSky(s, t, glow);

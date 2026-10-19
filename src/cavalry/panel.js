@@ -406,9 +406,9 @@ function flightTarget(rec) {
 // the composition is lengthened. Everything is checked (and a longer composition asked for) before anything changes.
 function planMove(noun) {
   var sky = currentSky(), from = Math.round(Number(flyStartField.getValue())), to = Math.round(Number(flyEndField.getValue()));
-  if (!(to >= from + 1)) throw new Error("Set End at least 1 frame after Start (a " + noun + " needs 2 frames or more).");
+  if (!(to >= from + 1)) throw new Error("Set To at least 1 frame after From (a " + noun + " needs 2 frames or more).");
   var comp = AstroScene.compFrameRange();
-  if (from < comp.start) throw new Error("Start is before the composition's first frame (" + comp.start + ").");
+  if (from < comp.start) throw new Error("From is before the composition's first frame (" + comp.start + ").");
   return { sky: sky, from: from, to: to, comp: comp };
 }
 function moveFieldsOn(plan) {
@@ -419,13 +419,13 @@ function moveFieldsOn(plan) {
 function extendForMove(plan, noun, button) {
   if (plan.to <= plan.comp.end) return false;
   var dialog = questionDialog();
-  if (!dialog) throw new Error("End is after your composition's last frame (" + plan.comp.end + "). Set End to " + plan.comp.end +
+  if (!dialog) throw new Error("To is after your composition's last frame (" + plan.comp.end + "). Set To to " + plan.comp.end +
     " or earlier, or lengthen the composition first.");
   var newEnd = Math.round(plan.to + EXTEND_PAD_SECONDS * AstroScene.compFps());
   if (!dialog.showQuestion("Extend the timeline", "This " + noun + " ends at frame " + plan.to + ", after your composition's last frame (" +
     plan.comp.end + "). " + button + " will extend the composition, and the layers that reach its end, to frame " + newEnd + " (" +
     EXTEND_PAD_SECONDS + " seconds after the " + noun + " ends). Continue?")) {
-    say("Cancelled. Set End to " + plan.comp.end + " or earlier to stay within your composition.");
+    say("Cancelled. Choose a To frame of " + plan.comp.end + " or earlier to stay within your composition.");
     return null;
   }
   var r = AstroScene.extendComp(plan.to);
