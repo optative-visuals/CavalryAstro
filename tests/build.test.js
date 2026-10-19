@@ -54,10 +54,20 @@ function makeFakeUi() {
   VLayout.prototype = Object.create(Widget.prototype);
   function HLayout() { Widget.call(this, "HLayout"); }
   HLayout.prototype = Object.create(Widget.prototype);
+  // Like Cavalry's Draw: paths are recorded and a test fires the mouse callbacks itself (the sky preview, Task 11).
+  function Draw() { Widget.call(this, "Draw"); this._paths = []; this._size = [0, 0]; this._redraws = 0; }
+  Draw.prototype = Object.create(Widget.prototype);
+  Draw.prototype.setSize = function (w, h) { this._size = [w, h]; };
+  Draw.prototype.setMinimumWidth = function (w) { this._minW = w; };
+  Draw.prototype.setMinimumHeight = function (h) { this._minH = h; };
+  Draw.prototype.addPath = function (p, paint) { this._paths.push({ path: p, paint: paint }); };
+  Draw.prototype.clearPaths = function () { this._paths = []; };
+  Draw.prototype.redraw = function () { this._redraws++; };
+  Draw.prototype.useHoverEvents = function (on) { this._hover = !!on; };
 
   let root = null;
   return {
-    Label: Label, Button: Button, Container: Container, VLayout: VLayout, HLayout: HLayout,
+    Label: Label, Button: Button, Container: Container, VLayout: VLayout, HLayout: HLayout, Draw: Draw,
     add: function (w) { root = w; },
     show: function () { this._shown = true; },
     setTitle: function (t) { this._title = t; },
@@ -259,6 +269,14 @@ test("clicking a tab selects it and shows only its page", () => {
   assert.equal(sky._background, "#1c1c1c", "the other tab goes back to the shadow colour");
   const pages = ui._root()._items[1]._items;
   assert.deepEqual(pages.map((p) => p._hidden), [true, false, true]);
+});
+
+test("the panel bundle carries the sky preview: AstroPreview as core, AstroPreviewPanel before panel.js", () => {
+  const src = buildPanel();
+  assert.ok(src.includes("var AstroPreview = (function"), "preview.js is in the core files");
+  assert.ok(src.indexOf("var AstroPreview = (function") < src.indexOf("var ASTRO_SKY_SRC = "), "after the sky core files");
+  const panelStart = src.indexOf(fs.readFileSync(path.join(ROOT, "src/cavalry/panel.js"), "utf8"));
+  assert.ok(src.indexOf("var AstroPreviewPanel = (function") < panelStart, "before panel.js");
 });
 
 test("the panel bundle embeds ASTRO_SKY_SRC", () => {

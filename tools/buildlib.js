@@ -9,9 +9,9 @@ RUNTIMES.sky = ["src/core/sky.js", "src/core/stars.js", "src/core/render.js"];
 RUNTIMES.reveal = ["src/core/sky.js", "src/core/reveal.js"];
 const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/stars.js",
   "src/core/render.js", "src/core/expression.js", "src/core/styles.js", "src/core/stylefiles.js", "src/core/fly.js",
-  "src/core/reveal.js", "src/core/controls.js"];
+  "src/core/reveal.js", "src/core/controls.js", "src/core/preview.js"];
 const CAVALRY_FILES = ["src/cavalry/attrs.js", "src/cavalry/net.js", "src/cavalry/style.js", "src/cavalry/tips.js",
-  "src/cavalry/cog.js", "src/cavalry/updatecheck.js", "src/cavalry/scene.js", "src/cavalry/controls.js", "src/cavalry/panel.js"];
+  "src/cavalry/cog.js", "src/cavalry/updatecheck.js", "src/cavalry/scene.js", "src/cavalry/controls.js", "src/cavalry/preview.js", "src/cavalry/panel.js"];
 
 function read(rel) { return fs.readFileSync(path.join(ROOT, rel), "utf8"); }
 
