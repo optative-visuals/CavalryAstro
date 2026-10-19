@@ -5,7 +5,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 // Each in-layer runtime is a list of src/core files, registered under a name by the task that adds it.
 const RUNTIMES = {};
-const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js"];
+const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js"];
 const CAVALRY_FILES = ["src/cavalry/attrs.js", "src/cavalry/net.js", "src/cavalry/style.js", "src/cavalry/tips.js",
   "src/cavalry/cog.js", "src/cavalry/updatecheck.js", "src/cavalry/panel.js"];
 
