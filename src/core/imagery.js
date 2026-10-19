@@ -101,11 +101,23 @@ var AstroImagery = (function () {
     Object.keys(hits).forEach(function (k) {
       var t = hits[k];
       for (var dr = -1; dr <= 1; dr++) for (var dc = -1; dc <= 1; dc++) add(t.row + dr, t.col + dc);
+      // A hit on a polar row: its RA slivers are narrower than the grid spacing, so the whole row is needed.
+      if (t.row === 0 || t.row === g.rows - 1) for (var cc = 0; cc < g.cols; cc++) add(t.row, cc);
     });
+    // A pole in the frame shows every RA around it, so the whole polar row is needed (as reproject.js's view does).
+    if (poleInFrame(cam, frameW, frameH, 90)) for (var c0 = 0; c0 < g.cols; c0++) add(0, c0);
+    if (poleInFrame(cam, frameW, frameH, -90)) for (var c1 = 0; c1 < g.cols; c1++) add(g.rows - 1, c1);
     return out;
   }
 
-  // The tiles a set of camera samples needs: each sample's level and the level below it, plus every L0 tile.
+  // Whether a pole (dec ±90) lies inside the frame: the same test as reproject.js's view.
+  function poleInFrame(cam, frameW, frameH, dec) {
+    var out = [0, 0];
+    var inside = AstroSky.makeProjector(cam, frameW)(0, dec, out);
+    return inside && Math.abs(out[0]) <= frameW / 2 && Math.abs(out[1]) <= frameH / 2;
+  }
+
+  // The tiles a set of camera samples needs: each sample's level, the level below it, and the level above while it fades in; plus every L0 tile.
   // If the total exceeds MAX_TILES, the top level is dropped (and again, if still over), and capped reports the
   // highest level dropped, or null when nothing was dropped.
   function planTiles(samples, frameW, frameH) {
@@ -115,7 +127,9 @@ var AstroImagery = (function () {
     for (var r = 0; r < LEVELS[0].rows; r++) for (var c = 0; c < LEVELS[0].cols; c++) put({ L: 0, row: r, col: c });
     samples.forEach(function (cam) {
       var top = levelFor(cam, frameW);
-      for (var L = Math.max(1, top - 1); L <= top; L++) {
+      // The level below, the level itself, and the level above while it is fading in.
+      for (var L = Math.max(1, top - 1); L <= Math.min(MAX_LEVEL, top + 1); L++) {
+        if (L > top && levelOpacity(L, cam, frameW) <= 0) continue;
         visibleTiles(L, cam, frameW, frameH).forEach(function (t) { put({ L: L, row: t.row, col: t.col }); });
       }
     });

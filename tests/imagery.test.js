@@ -124,3 +124,63 @@ test("planTiles for 100 random fov 5 cameras is capped and stays under 300", () 
   assert.ok(plan.count <= I.MAX_TILES, "count " + plan.count);
   assert.ok(plan.items.some((t) => t.L === 0), "L0 kept");
 });
+
+// Whether a pole (dec ±90) is inside a frame, as reproject.js decides it.
+function poleIn(cam, frameW, frameH, dec) {
+  const out = [0, 0];
+  const inside = S_PROJ(cam, frameW)(0, dec, out);
+  return inside && Math.abs(out[0]) <= frameW / 2 && Math.abs(out[1]) <= frameH / 2;
+}
+const S_PROJ = (cam, w) => require("../src/core/sky.js").makeProjector(cam, w);
+
+test("the reviewer example (Dec -76.7, fov 39.7) at L3 includes 15_4 to 15_9", () => {
+  const cam = { ra: 0, dec: -76.7, fov: 39.7, rotation: 0, projection: 0 };
+  const tiles = I.visibleTiles(3, cam, FRAME_W, FRAME_H);
+  for (let col = 4; col <= 9; col++) assert.ok(has(tiles, 15, col), "15_" + col);
+});
+
+test("a south pole in frame at L3 includes the whole last row", () => {
+  const cam = { ra: 0, dec: -89, fov: 40, rotation: 0, projection: 0 };
+  assert.ok(poleIn(cam, FRAME_W, FRAME_H, -90), "the pole is in the frame");
+  const tiles = I.visibleTiles(3, cam, FRAME_W, FRAME_H);
+  for (let col = 0; col < 32; col++) assert.ok(has(tiles, 15, col), "15_" + col);
+});
+
+test("visibleTiles covers every tile hit by a dense 121 x 121 sampling, near the poles", () => {
+  const cams = [
+    { ra: 0, dec: -76.7, fov: 39.7, rotation: 0, projection: 0 },
+    { ra: 200, dec: 85, fov: 30, rotation: 0, projection: 0 },
+    { ra: 30, dec: 88, fov: 5, rotation: 0, projection: 0 },
+    { ra: 120, dec: -80, fov: 65, rotation: 0, projection: 0 },
+    { ra: 300, dec: 79, fov: 12, rotation: 0.4, projection: 0 }
+  ];
+  const rnd = rng(7);
+  for (let i = 0; i < 40; i++) {
+    const sign = rnd() < 0.5 ? -1 : 1;
+    cams.push({ ra: rnd() * 360, dec: sign * (75 + rnd() * 15), fov: 5 + rnd() * 60, rotation: rnd() * 360, projection: 0 });
+  }
+  const S = require("../src/core/sky.js");
+  for (const cam of cams) {
+    for (const L of [1, 2, 3]) {
+      const planned = I.visibleTiles(L, cam, FRAME_W, FRAME_H);
+      const keys = new Set(planned.map((t) => t.row + "_" + t.col));
+      for (let i = 0; i <= 120; i++) for (let j = 0; j <= 120; j++) {
+        const x = -FRAME_W / 2 + i * FRAME_W / 120, y = -FRAME_H / 2 + j * FRAME_H / 120;
+        const radec = S.unproject(cam, FRAME_W, x, y);
+        const t = I.tileOf(L, radec[0], radec[1]);
+        assert.ok(keys.has(t.row + "_" + t.col), "L" + L + " dec " + cam.dec + " misses " + t.row + "_" + t.col);
+      }
+    }
+  }
+});
+
+test("a camera whose px/deg sits inside L2's fade window plans L2 tiles", () => {
+  // px/deg 20: above level 0 and 1's threshold of 11.4, so L1 is the frame's level, and L2 is fading in
+  // (it is needed above 22.8 px/deg, and fades in from 22.8 times 2^-0.3).
+  const fov = 4 * Math.atan(960 * (Math.PI / 180) / (2 * 20)) * 180 / Math.PI;
+  const cam = { ra: 83.8, dec: 0, fov: fov, rotation: 0, projection: 0 };
+  assert.equal(I.levelFor(cam, FRAME_W), 1);
+  assert.ok(I.levelOpacity(2, cam, FRAME_W) > 0, "L2 is fading in");
+  const plan = I.planTiles([cam], FRAME_W, FRAME_H);
+  assert.ok(plan.items.some((t) => t.L === 2), "L2 tiles are planned");
+});
