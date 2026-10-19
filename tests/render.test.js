@@ -126,3 +126,41 @@ test("stars: a sizeScale multiplies the size input, so the glow draws at 3 times
   assert.ok(band && glow);
   assert.ok(Math.abs(glow[3] - 3 * band[3]) < 1e-9, "radius " + glow[3] + " vs " + band[3]);
 });
+
+// ---- Culling to the frame: nothing far off the comp is drawn -------------------------------------------
+const H = 1080;
+const FRAME_CAM = { ra: 83.8, dec: 0, fov: 40, rotation: 0, projection: 0 };
+// The sky point at a Cavalry pixel of the frame camera (centre 0,0, y up).
+const at = (x, y) => S.unproject(FRAME_CAM, W, x, y);
+
+test("stars: every star drawn at fov 40 lies inside the frame plus its radius and 40 px, and far stars are not drawn", () => {
+  const data = { ra: [], dec: [], mag: [] };
+  for (let i = 0; i < 400; i++) {
+    data.ra.push(83.8 + (i % 20) * 3 - 30);
+    data.dec.push(-30 + Math.floor(i / 20) * 3);
+    data.mag.push(1 + (i % 5));
+  }
+  const drawn = ops(R.stars(data, FRAME_CAM, W, { darkness: 100, size: 1, frameH: H }, FakePath), "E");
+  assert.ok(drawn.length > 0 && drawn.length < 400, "some stars drawn, some culled: " + drawn.length);
+  drawn.forEach((o) => {
+    assert.ok(Math.abs(o[1]) <= W / 2 + o[3] + 40 && Math.abs(o[2]) <= H / 2 + o[3] + 40, "in the margin box: " + o.slice(1));
+  });
+});
+
+test("lines: a segment fully left of the frame is not drawn, and a segment crossing the frame is", () => {
+  const left = [at(-1300, 0), at(-1500, 100)];
+  const crossing = [at(-1300, 0), at(0, 0)];
+  assert.equal(ops(R.lines({ lines: [left] }, FRAME_CAM, W, { draw: 1, frameH: H }, FakePath), "M").length, 0);
+  assert.equal(ops(R.lines({ lines: [crossing] }, FRAME_CAM, W, { draw: 1, frameH: H }, FakePath), "L").length, 1);
+});
+
+test("borders: a ring fully above the frame is not drawn", () => {
+  const above = [[at(0, 900), at(100, 950), at(-100, 950)]];
+  assert.equal(ops(R.border({ rings: above }, FRAME_CAM, W, { frameH: H }, FakePath), "L").length, 0);
+});
+
+test("texts: a label beyond the frame plus 200 px is not drawn; one inside that margin is", () => {
+  const far = at(-1300, 0), near = at(-1100, 0);
+  const p = R.texts({ items: [["Far", far[0], far[1]], ["Near", near[0], near[1]]] }, FRAME_CAM, W, { size: 18, frameH: H }, FakePath);
+  assert.deepEqual(ops(p, "T").map((o) => o[1]), ["Near"]);
+});

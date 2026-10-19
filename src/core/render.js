@@ -10,8 +10,11 @@ var AstroRender = (function () {
   var MIN_RADIUS = 0.05;
   // Angular length below which a segment is treated as zero and skipped.
   var EPS = 1e-12;
-  var DEFAULT_FRAME_W = 1920;
+  var DEFAULT_FRAME_W = 1920, DEFAULT_FRAME_H = 1080;
   var DEFAULT_TEXT_SIZE = 18;
+  // Geometry is culled to the comp plus a margin: 40 px for stars (on top of their radius), lines and borders,
+  // and 200 px for labels, which can be wide.
+  var MARGIN_LINE = 40, MARGIN_TEXT = 200;
 
   function finite(v, fallback) {
     var n = Number(v);
@@ -31,6 +34,21 @@ var AstroRender = (function () {
   function safeFrameW(frameW) {
     var w = Number(frameW);
     return w > 0 && isFinite(w) ? w : DEFAULT_FRAME_W;
+  }
+
+  function safeFrameH(frameH) {
+    var h = Number(frameH);
+    return h > 0 && isFinite(h) ? h : DEFAULT_FRAME_H;
+  }
+
+  // Cohen-Sutherland outcode of a Cavalry pixel against the frame's half-sizes hw, hh: 0 inside, else the sides it is past.
+  function outcode(x, y, hw, hh) {
+    return (x < -hw ? 1 : 0) | (x > hw ? 2 : 0) | (y < -hh ? 4 : 0) | (y > hh ? 8 : 0);
+  }
+
+  // True when a segment's two ends are beyond the same side of the frame, so the segment cannot cross it.
+  function offFrame(pa, pb, hw, hh) {
+    return (outcode(pa[0], pa[1], hw, hh) & outcode(pb[0], pb[1], hw, hh)) !== 0;
   }
 
   // Projects a [ra, dec] point. Returns true when it is in front of the camera.
@@ -71,11 +89,13 @@ var AstroRender = (function () {
     var limit = o.ignoreLimit ? 99 : AstroStars.limitFor(finite(o.darkness, 100));
     // The size input is shared by a layer kind's stars; sizeScale is the layer's own multiple of it (the glow's 3).
     var size = finite(o.size, 1) * finite(o.sizeScale, 1);
+    var W = safeFrameW(frameW) / 2, H = safeFrameH(o.frameH) / 2;
     var project = projectorFor(cam, frameW), out = [0, 0];
     for (var i = 0; i < ras.length; i++) {
       var r = AstroStars.radius(mags[i], limit, size);
       if (!(r > MIN_RADIUS)) continue;
       if (!project(ras[i], decs[i], out)) continue;
+      if (Math.abs(out[0]) > W + r + MARGIN_LINE || Math.abs(out[1]) > H + r + MARGIN_LINE) continue;
       path.addEllipse(out[0], out[1], r, r);
     }
     return path;
@@ -105,6 +125,7 @@ var AstroRender = (function () {
     var target = draw * total;
     if (!(target > EPS)) return path;
     var project = projectorFor(cam, frameW), pa = [0, 0], pb = [0, 0];
+    var hw = safeFrameW(frameW) / 2 + MARGIN_LINE, hh = safeFrameH(o.frameH) / 2 + MARGIN_LINE;
     var acc = 0, pen = false, prevLine = -1, done = false;
     for (var s = 0; s < segs.length && !done; s++) {
       var seg = segs[s];
@@ -120,7 +141,7 @@ var AstroRender = (function () {
       acc += seg.len;
       var visA = project(seg.a[0], seg.a[1], pa);
       var visB = project(end[0], end[1], pb);
-      if (!visA || !visB) { pen = false; continue; }
+      if (!visA || !visB || offFrame(pa, pb, hw, hh)) { pen = false; continue; }
       if (!pen) path.moveTo(pa[0], pa[1]);
       path.lineTo(pb[0], pb[1]);
       pen = !done;
@@ -132,8 +153,10 @@ var AstroRender = (function () {
   // each ring = [[ra, dec], ...].
   function border(data, cam, frameW, opts, PathCtor) {
     var path = new PathCtor();
+    var o = opts || {};
     var rings = (data && data.rings) || [];
     var project = projectorFor(cam, frameW), pa = [0, 0], pb = [0, 0];
+    var hw = safeFrameW(frameW) / 2 + MARGIN_LINE, hh = safeFrameH(o.frameH) / 2 + MARGIN_LINE;
     for (var r = 0; r < rings.length; r++) {
       var ring = rings[r] || [], n = ring.length;
       if (n < 2) continue;
@@ -144,7 +167,7 @@ var AstroRender = (function () {
         if (!(segmentLength(a, b) > EPS)) continue;
         var visA = project(a[0], a[1], pa);
         var visB = project(b[0], b[1], pb);
-        if (!visA || !visB) { pen = false; continue; }
+        if (!visA || !visB || offFrame(pa, pb, hw, hh)) { pen = false; continue; }
         if (!pen) path.moveTo(pa[0], pa[1]);
         path.lineTo(pb[0], pb[1]);
         pen = true;
@@ -160,9 +183,11 @@ var AstroRender = (function () {
     var size = finite(o.size, DEFAULT_TEXT_SIZE), dx = finite(o.dx, 0), dy = finite(o.dy, 0);
     var items = (data && data.items) || [];
     var project = projectorFor(cam, frameW), out = [0, 0];
+    var hw = safeFrameW(frameW) / 2 + MARGIN_TEXT, hh = safeFrameH(o.frameH) / 2 + MARGIN_TEXT;
     for (var i = 0; i < items.length; i++) {
       var it = items[i];
       if (!project(it[1], it[2], out)) continue;
+      if (Math.abs(out[0] + dx) > hw || Math.abs(out[1] + dy) > hh) continue;
       path.addText(String(it[0]), size, out[0] + dx, out[1] + dy);
     }
     return path;

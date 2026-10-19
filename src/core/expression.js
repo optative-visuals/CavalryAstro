@@ -47,13 +47,13 @@ var AstroExpression = (function () {
   function kindCall(kind, inputs, opts) {
     var o = opts || {};
     var v = function (name) { return "_i" + inputIndex(inputs, name); };
-    var frame = v("compW");
+    var frame = v("compW"), frameH = "frameH: " + v("compH");
     var args;
     if (kind === "stars") args = "{darkness: " + v("darkness") + ", size: " + v("size") + ", ignoreLimit: " + (o.ignoreLimit ? "true" : "false") +
-      ", sizeScale: " + (o.sizeScale || 1) + "}";
-    else if (kind === "lines") args = "{draw: " + v("draw") + "}";
-    else if (kind === "texts") args = "{size: " + v("textSize") + ", dx: " + v("dx") + ", dy: " + v("dy") + "}";
-    else args = "{}";
+      ", sizeScale: " + (o.sizeScale || 1) + ", " + frameH + "}";
+    else if (kind === "lines") args = "{draw: " + v("draw") + ", " + frameH + "}";
+    else if (kind === "texts") args = "{size: " + v("textSize") + ", dx: " + v("dx") + ", dy: " + v("dy") + ", " + frameH + "}";
+    else args = "{" + frameH + "}";
     return "AstroRender." + kind + "(ASTRO_DATA, " + CAM + ", " + frame + ", " + args + ", cavalry.Path);\n";
   }
 
