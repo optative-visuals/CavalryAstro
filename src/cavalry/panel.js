@@ -1,6 +1,7 @@
 // The CavalryAstro panel. Ported from Cavalry Geo's panel.js (its Map tab and settings), keeping the sky features
 // only: the Sky tab (sky list, Create sky here, search, the preview, Jump / Fly / Drift, Style and Refresh controls),
-// the Stars and Reveal tabs (empty until their task lands) and the ⚙ settings. It runs when the script loads.
+// the Stars tab (darkness, stars, the whole-sky ticks), the Reveal tab (pick constellations, reveal, change) and the
+// ⚙ settings. It runs when the script loads.
 var ASTRO_TABS = ["Sky", "Stars", "Reveal"];
 var NEW_SKY = "New sky", WHOLE_SKY = "Whole sky";
 var DEFAULT_THEME = "Realistic";
@@ -307,6 +308,7 @@ function refreshNewSkyFields() {
     easingLabel, easingPicker, arcLabel, arcPicker, updateFlightBtn, driftLabel, driftPicker, driftBtn], show);
   setHiddenAll([applyStyleBtn, saveStyleBtn], show);
   if (cameraPanel) setHiddenAll([cameraPanel], show);
+  showStarValues();
 }
 // "Sky 1" is the lowest free "Sky n"; a typed name that is taken gets a number ("Orion 2"). Existing skies are never renamed.
 function skyNamesTaken() {
@@ -747,6 +749,202 @@ deleteStyleBtn.onClick = guardAction(function () {
   say("Deleted style \"" + theme.name + "\".");
 });
 
+// ---- The Stars tab -----------------------------------------------------------------------------------------
+// Each control writes the picked sky's star settings. showStarValues reads them back when the picked sky changes; a
+// value it sets itself is not taken as the user's change (refreshingStars).
+var darknessSlider = new ui.Slider();
+darknessSlider.setRange(0, 100);
+var darkCityLabel = new ui.Label("City"), darkCountryLabel = new ui.Label("Countryside");
+var colourToggle = AstroStyle.toggle("Star colours", true);
+var glowToggle = AstroStyle.toggle("Glow", true);
+var starSizeField = new ui.NumericField(1);
+starSizeField.setMin(0.1);
+if (typeof starSizeField.setFixedWidth === "function") starSizeField.setFixedWidth(48);
+var linesToggle = AstroStyle.toggle("All constellation lines", true);
+var bordersToggle = AstroStyle.toggle("All borders", true);
+var namesToggle = AstroStyle.toggle("All names", true);
+var refreshingStars = false;
+function showStarValues() {
+  if (newSkySelected()) return;
+  var v = AstroScene.readStars(currentSky());
+  refreshingStars = true;
+  try {
+    darknessSlider.setValue(v.darkness);
+    starSizeField.setValue(v.size);
+    colourToggle.setValue(v.starColours);
+    glowToggle.setValue(v.glow);
+    linesToggle.setValue(v.lines);
+    bordersToggle.setValue(v.borders);
+    namesToggle.setValue(v.names);
+  } finally { refreshingStars = false; }
+}
+darknessSlider.onValueChanged = guard(function () {
+  if (!refreshingStars) AstroScene.setDarkness(currentSky(), darknessSlider.getValue());
+});
+starSizeField.onValueChanged = guard(function () {
+  if (!refreshingStars) AstroScene.setStarSize(currentSky(), starSizeField.getValue());
+});
+// A switch's change is an action: it catches the panel up with the canvas first, as the buttons do.
+function starSwitch(toggle, write) {
+  toggle.onValueChanged = function (on) { guardAction(function () { write(currentSky(), on); })(); };
+}
+starSwitch(colourToggle, function (sky, on) { AstroScene.setStarColours(sky, on); });
+starSwitch(glowToggle, function (sky, on) { AstroScene.setGlow(sky, on); });
+starSwitch(linesToggle, function (sky, on) { AstroScene.setWholeSky(sky, "lines", on); });
+starSwitch(bordersToggle, function (sky, on) { AstroScene.setWholeSky(sky, "borders", on); });
+starSwitch(namesToggle, function (sky, on) { AstroScene.setWholeSky(sky, "names", on); });
+var starsColumn = column([
+  AstroStyle.panel([
+    AstroStyle.heading("Sky darkness"),
+    row(darkCityLabel, darknessSlider, darkCountryLabel)
+  ]),
+  AstroStyle.panel([
+    AstroStyle.heading("Stars"),
+    AstroStyle.toggleGrid([colourToggle, glowToggle], 2),
+    row(AstroStyle.fieldLabel("Star size"), starSizeField)
+  ]),
+  AstroStyle.panel([
+    AstroStyle.heading("Whole sky"),
+    AstroStyle.toggleGrid([linesToggle, bordersToggle, namesToggle], 1)
+  ])
+]);
+
+// ---- The Reveal tab ----------------------------------------------------------------------------------------
+// The list holds the constellations a Find gives (blank = all 88, A to Z). The first pick, in list order, opens Start
+// and Frames (AstroReveal.revealTiming); Reveal selected makes one reveal per pick, each from where the last ended.
+var revealFind = new ui.LineEdit(); revealFind.setPlaceholder("Find a constellation, e.g. Orion");
+var revealFindBtn = AstroStyle.button("Find");
+var revealList = new ui.List();
+revealList.setSelectionMode("extended");
+var revealRows = [];   // the listed constellations, in list order: { index, name }
+var lastRevealFind = null;
+var revealLinesToggle = AstroStyle.toggle("Lines draw on", true);
+var revealBorderToggle = AstroStyle.toggle("Border lights up", true);
+var revealTitleToggle = AstroStyle.toggle("Title", true);
+var revealLabelsToggle = AstroStyle.toggle("Star labels", true);
+var titleStylePicker = new ui.DropDown();
+titleStylePicker.addEntry("Header"); titleStylePicker.addEntry("Follows constellation");
+titleStylePicker.setValue(0);
+var revealStartField = new ui.NumericField(playhead());
+var revealFramesField = new ui.NumericField(AstroScene.compFps());
+[revealStartField, revealFramesField].forEach(function (f) {
+  f.setType(0);
+  if (typeof f.setFixedWidth === "function") f.setFixedWidth(48);
+});
+revealStartField.setMin(0); revealFramesField.setMin(1);
+var revealStartBox = AstroStyle.frameField(revealStartField);
+var revealFramesBox = AstroStyle.frameField(revealFramesField);
+var startLabel = AstroStyle.fieldLabel("Start");
+var framesLabel = AstroStyle.fieldLabel("Frames");
+var titleStyleLabel = AstroStyle.fieldLabel("Title style");
+var revealBtn = AstroStyle.primaryButton("Reveal selected");
+var changeRevealBtn = AstroStyle.button("Change reveal");
+
+// The constellations a Find text names (blank = all 88, A to Z), as { index, name } in list order.
+function revealRowsFor(q) {
+  var d = skyData(), out = [];
+  if (!q) {
+    d.cons.forEach(function (c, i) { out.push({ index: i, name: c.name }); });
+    out.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+    return out;
+  }
+  AstroCatalog.search(q, d.cons, d.stars, 1000).forEach(function (r) {
+    if (r.kind === "constellation") out.push({ index: r.index, name: r.label });
+  });
+  return out;
+}
+// Lists the constellations for a Find text and returns how many there are.
+function listConstellations(q) {
+  revealRows = revealRowsFor(q);
+  revealList.setModel(revealRows.map(function (r) { return { uuid: "c" + r.index, label: r.name }; }));
+  lastRevealFind = q;
+  return revealRows.length;
+}
+function runRevealFind() {
+  var n = listConstellations(revealFind.getText().trim());
+  say(n + (n === 1 ? " constellation" : " constellations") + ". Pick one or more, then Reveal selected.");
+}
+// The listed rows picked by uuid, in list order.
+function pickedRows(uuids) {
+  return revealRows.filter(function (r) { return uuids.indexOf("c" + r.index) >= 0; });
+}
+// The ticks, as the parts of a reveal (in the order AstroScene.REVEAL_PARTS gives).
+function revealParts() {
+  var parts = [];
+  if (revealLinesToggle.getValue()) parts.push("lines");
+  if (revealBorderToggle.getValue()) parts.push("border");
+  if (revealTitleToggle.getValue()) parts.push("title");
+  if (revealLabelsToggle.getValue()) parts.push("labels");
+  return parts;
+}
+// The reveal a Scene Window selection is in: the reveal group, or a layer inside it, in any sky. Null when none.
+function revealOfSelection(sel) {
+  var hit = null;
+  AstroScene.findSkies().forEach(function (s) {
+    AstroScene.findReveals(s).forEach(function (r) {
+      if (hit) return;
+      var mine = sel.some(function (id) { return id === r.groupId || api.getParent(id) === r.groupId; });
+      if (mine) hit = { groupId: r.groupId, name: r.name, sky: s.name };
+    });
+  });
+  return hit;
+}
+
+revealFindBtn.onClick = guardAction(runRevealFind);
+// Enter runs the Find only when the text changed (a blank Find is valid: all 88).
+revealFind.onValueCommitted = guardWork(function () {
+  if (revealFind.getText().trim() !== lastRevealFind) runRevealFind();
+});
+// The first pick sets Start and Frames from its flight, or from the playhead for one second.
+// (guard() passes no arguments, so the selection is handed on inside it.)
+revealList.onSelectionChanged = function (uuids) {
+  guard(function () {
+    var rows = pickedRows(uuids || []);
+    if (!rows.length) return;
+    var last = newSkySelected() ? null : AstroScene.lastFlight(currentSky());
+    var t = AstroReveal.revealTiming(last, rows[0].index, playhead(), AstroScene.compFps());
+    revealStartField.setValue(t.start);
+    revealFramesField.setValue(t.frames);
+  })();
+};
+revealBtn.onClick = guardAction(function () {
+  var sky = currentSky(), rows = pickedRows(revealList.getSelection());
+  if (!rows.length) throw new Error("Pick one or more constellations in the list first.");
+  var start = Math.round(Number(revealStartField.getValue()) || 0);
+  var frames = Math.max(1, Math.round(Number(revealFramesField.getValue()) || 1));
+  var first = start, parts = revealParts(), opts = { titleMode: titleStylePicker.getValue() };
+  var names = [];
+  rows.forEach(function (r) {
+    AstroScene.createReveal(sky, r.index, parts, start, frames, opts);
+    names.push(r.name);
+    start += frames; // the next reveal starts where this one ended
+  });
+  revealStartField.setValue(start);
+  say("Made " + names.length + (names.length === 1 ? " reveal" : " reveals") + " in " + sky.name + ": " + names.join(", ") +
+    " (frames " + first + " to " + start + ").");
+});
+changeRevealBtn.onClick = guardAction(function () {
+  var found = revealOfSelection(currentSelection() || []);
+  if (!found) { say("Select a reveal group (or a layer inside it) in the Scene Window first."); return; }
+  AstroScene.changeReveal(found.groupId, revealParts(), { titleMode: titleStylePicker.getValue() });
+  say("Changed " + found.name + " in " + found.sky + ".");
+});
+var revealColumn = column([
+  AstroStyle.panel([
+    AstroStyle.heading("Constellations"),
+    row(revealFind, revealFindBtn),
+    revealList
+  ]),
+  AstroStyle.panel([
+    AstroStyle.heading("Reveal"),
+    AstroStyle.toggleGrid([revealLinesToggle, revealBorderToggle, revealTitleToggle, revealLabelsToggle], 2),
+    row(titleStyleLabel, titleStylePicker),
+    row(startLabel, revealStartBox, framesLabel, revealFramesBox),
+    row(revealBtn, changeRevealBtn),
+    AstroStyle.note("Picked constellations reveal one after another: each starts where the last one ended.")
+  ])
+]);
+
 // ---- Hover help: every control's tip comes from AstroTips (src/cavalry/tips.js) --------------------------------
 var TIP_TARGETS = [
   [cogBtn, "settings.cog"],
@@ -779,13 +977,31 @@ var TIP_TARGETS = [
   [exportStyleBtn, "settings.exportStyle"],
   [updateCheck, "settings.updateCheck"],
   [resetChoicesBtn, "settings.reset"],
-  [getUpdatesBtn, "settings.getUpdates"]
+  [getUpdatesBtn, "settings.getUpdates"],
+  [darknessSlider, "stars.darkness"],
+  [colourToggle, "stars.colours"],
+  [glowToggle, "stars.glow"],
+  [starSizeField, "stars.size"],
+  [linesToggle, "stars.lines"],
+  [bordersToggle, "stars.borders"],
+  [namesToggle, "stars.names"],
+  [revealFind, "reveal.find"],
+  [revealFindBtn, "reveal.find"],
+  [revealList, "reveal.list"],
+  [revealLinesToggle, "reveal.lines"],
+  [revealBorderToggle, "reveal.border"],
+  [revealTitleToggle, "reveal.title"],
+  [revealLabelsToggle, "reveal.labels"],
+  [titleStylePicker, "reveal.titleStyle"],
+  [revealStartField, "reveal.start"],
+  [revealFramesField, "reveal.frames"],
+  [revealBtn, "reveal.reveal"],
+  [changeRevealBtn, "reveal.change"]
 ];
 TIP_TARGETS.forEach(function (t) { AstroStyle.tip(t[0], AstroTips.text(t[1])); });
 
 // ---- The tabs and the pages --------------------------------------------------------------------------------
 var tabPages = null, tabBar = null, pageNames = ASTRO_TABS.slice();
-// Stars and Reveal are empty pages until their tasks land.
 function showTab(name) {
   var i = pageNames.indexOf(name);
   if (i < 0) return;
@@ -829,6 +1045,7 @@ function CompFollower() {
   arcPicker.setValue(indexOfId(AstroFly.ARCS, s.flyArc, 1));
   driftPicker.setValue(indexOfId(AstroFly.DRIFTS, s.driftMove, 0));
   showTips(s.showTips !== false);
+  listConstellations("");
   reloadStyleFiles(true);
   refreshThemePicker(s.skyStyle || DEFAULT_THEME);
 })();
@@ -841,7 +1058,8 @@ function buildUi() {
   if (!settingsContainer) pageNames.push("Settings");
   tabPages = AstroStyle.pageStack(AstroStyle.PAGE_BACKGROUND);
   pageNames.forEach(function (name) {
-    tabPages.add(name === "Sky" ? skyColumn : name === "Settings" ? settingsColumn : column([]));
+    tabPages.add(name === "Sky" ? skyColumn : name === "Stars" ? starsColumn : name === "Reveal" ? revealColumn :
+      name === "Settings" ? settingsColumn : column([]));
   });
   tabPages.finish();
   tabBar = AstroStyle.tabBar(ASTRO_TABS, function (name) { showTab(name); });

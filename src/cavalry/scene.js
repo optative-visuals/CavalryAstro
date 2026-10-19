@@ -371,6 +371,21 @@ var AstroScene = (function () {
     if (id) writeInput(id, "hidden", !on);
   }
 
+  // What the Stars tab shows for a sky: the darkness and size its star layers read, the colour and glow switches, and
+  // whether the whole-sky lines, borders and names are shown. A part the sky lacks reads as its default.
+  function readStars(s) {
+    var L = skyLayers(s), star = L.bands[0] || L.glow;
+    function starValue(name, fallback) {
+      if (!star) return fallback;
+      return numberOr(api.get(star, A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, name)), fallback);
+    }
+    function shown(id) { return id ? !api.get(id, "hidden") : true; }
+    return {
+      darkness: starValue("darkness", 100), size: starValue("size", 1), starColours: themeOf(s).starMode === "true",
+      glow: glowOn(s), lines: shown(L.lines), borders: shown(L.borders), names: shown(L.names)
+    };
+  }
+
   // An attribute is driven when it is keyframed or connected: the theme does not overwrite it.
   function isDriven(id, attr) {
     var keys = [], from = "";
@@ -877,6 +892,7 @@ var AstroScene = (function () {
     readCamera: readCamera,
     setCamera: setCamera,
     setWholeSky: setWholeSky,
+    readStars: readStars,
     setDarkness: setDarkness,
     setStarSize: setStarSize,
     setStarColours: setStarColours,

@@ -43,6 +43,8 @@ function makeFakeUi() {
   Widget.prototype.setText = function (t) { this._text = t; };
   Widget.prototype.getText = function () { return this._text; };
   Widget.prototype.setLayout = function (l) { this._layout = l; };
+  // Where the widget sits in the window (the cog's popover opens from its bottom middle, as cog.js reads it).
+  Widget.prototype.geometry = function () { return { x: 0, y: 0, width: 22, height: 24 }; };
   Widget.prototype.add = function (w) { this._items.push(w); };
   Widget.prototype.addStretch = function () { this._stretch = (this._stretch || 0) + 1; };
 
@@ -95,11 +97,29 @@ function makeFakeUi() {
   Draw.prototype.clearPaths = function () { this._paths = []; };
   Draw.prototype.redraw = function () { this._redraws++; };
   Draw.prototype.useHoverEvents = function (on) { this._hover = !!on; };
+  // Cavalry's ui.Slider (setRange, getValue, setValue, onValueChanged) and ui.List (rows by uuid, onSelectionChanged).
+  function Slider() { Widget.call(this, "Slider"); this._value = 0; this._range = [0, 100]; this.onValueChanged = null; }
+  Slider.prototype = Object.create(Widget.prototype);
+  Slider.prototype.getValue = function () { return this._value; };
+  Slider.prototype.setValue = function (v) { this._value = Number(v); };
+  Slider.prototype.setRange = function (lo, hi) { this._range = [lo, hi]; };
+  function List() { Widget.call(this, "List"); this._model = []; this._selection = []; this.onSelectionChanged = null; }
+  List.prototype = Object.create(Widget.prototype);
+  List.prototype.setSelectionMode = function (m) { this._mode = m; };
+  List.prototype.setModel = function (m) { this._model = m.slice(); };
+  List.prototype.getModel = function () { return this._model.slice(); };
+  List.prototype.getSelection = function () { return this._selection.slice(); };
+  // A click that selects these rows: the selection is set and the change callback fires, as Cavalry does.
+  List.prototype.pick = function (uuids) {
+    this._selection = uuids.slice();
+    if (typeof this.onSelectionChanged === "function") this.onSelectionChanged(this.getSelection());
+  };
 
   let root = null;
   return {
     Label: Label, Button: Button, Container: Container, VLayout: VLayout, HLayout: HLayout, Draw: Draw,
     DropDown: DropDown, LineEdit: LineEdit, NumericField: NumericField, Checkbox: Checkbox, Modal: Modal,
+    Slider: Slider, List: List,
     add: function (w) { root = w; },
     show: function () { this._shown = true; },
     setTitle: function (t) { this._title = t; },
@@ -1033,7 +1053,7 @@ test("Refresh controls and every press prepare the picked sky's reveals", () => 
 test("every control in the panel has a hover tip, the settings popover's included", () => {
   const { ui } = runPanel();
   const tabs = ["Sky", "Stars", "Reveal"];
-  const controls = ui._all().filter((w) => ["Button", "DropDown", "LineEdit", "NumericField", "Checkbox"].indexOf(w.kind) >= 0)
+  const controls = ui._all().filter((w) => ["Button", "DropDown", "LineEdit", "NumericField", "Checkbox", "Slider", "List"].indexOf(w.kind) >= 0)
     .filter((w) => !(w.kind === "Button" && tabs.indexOf(w._text) >= 0));
   assert.ok(controls.length > 20, "the panel has its controls");
   controls.forEach((w) => {
@@ -1133,4 +1153,91 @@ test("Update flight redoes the flight under the playhead with the new Easing, ke
   assert.equal(rec.end, 100);
   assert.equal(rec.target.label, "Orion");
   assert.ok(maxRaStep(api, sky.cameraId, 0, 100) < 10, "no RA step of 10 degrees or more");
+});
+
+// ---- The panel: the Stars and Reveal tabs, and ⚙ (Task 13) -------------------------------------------------
+// The widget a tip (AstroTips key) was put on: its tooltip is the key's text, wrapped in lines of seven words.
+function tipped(ui, context, key) {
+  const want = context.AstroTips.text(key);
+  return ui._all().find((w) => w._setToolTip && String(w._setToolTip[0]).replace(/\n/g, " ") === want);
+}
+// Picks the named constellations in the Reveal list, as a click does.
+function pickConstellations(ui, names) {
+  const list = widgetsOfKind(ui, "List")[0];
+  list.pick(names.map((n) => list._model.find((r) => r.label === n).uuid));
+}
+
+test("the Stars tab: moving Sky darkness to 0 sets every band's darkness to 0", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  const darkness = widgetsOfKind(ui, "Slider")[0];
+  darkness.setValue(0);
+  darkness.onValueChanged();
+  S.skyLayers(sky).bands.forEach((id) => assert.equal(api.get(id, "generator.array.7"), 0, api.getNiceName(id)));
+});
+
+test("the Reveal list holds all 88 constellations, alphabetical, when Find is empty", () => {
+  const { ui, context } = runPanel();
+  const names = widgetsOfKind(ui, "List")[0]._model.map((r) => r.label);
+  assert.equal(names.length, 88);
+  assert.deepEqual(names, names.slice().sort());
+  assert.equal(names.length, context.AstroScene.skyData().cons.length);
+});
+
+test("the Reveal page: picking Orion after Fly here to Orion over 0 to 100 sets Start 60 and Frames 40; picking Cross  sets Start to the playhead and Frames to the fps", () => {
+  const { api, ui, context } = runPanel();
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  search(ui, "orion");
+  const results = dropDownWith(ui, "Whole sky");
+  results.setValue(1);
+  results.onValueChanged();
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(100);
+  findButton(ui, "Fly here").onClick();
+  api.setFrame(7);
+  const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
+  pickConstellations(ui, ["Orion"]);
+  assert.equal(start.getValue(), 60, "the reveal starts 40% into the flight");
+  assert.equal(frames.getValue(), 40, "and lasts to the flight's end");
+  pickConstellations(ui, ["Cross"]);
+  assert.equal(start.getValue(), 7, "a constellation not flown to starts at the playhead");
+  assert.equal(frames.getValue(), 25, "for one second: the comp's fps");
+});
+
+test("Reveal selected with Orion and Cross  picked makes two reveals, Cross  first (list order), the second starting where the first ended", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  pickConstellations(ui, ["Orion", "Cross"]);
+  const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
+  start.setValue(0);
+  frames.setValue(20);
+  findButton(ui, "Reveal selected").onClick();
+  const reveals = S.findReveals(sky);
+  assert.equal(reveals.map((r) => r.name).join(" | "), "Reveal 1: Cross | Reveal 2: Orion");
+  assert.equal(api.getKeyframeTimes(reveals[0].amountId, "array.0").join(","), "0,20");
+  assert.equal(api.getKeyframeTimes(reveals[1].amountId, "array.0").join(","), "20,40", "starts where Cross  ended");
+  assert.equal(start.getValue(), 40, "Start moves on to where the last reveal ended");
+});
+
+test("Change reveal with nothing selected says so in the status line", () => {
+  const { ui } = runPanel();
+  findButton(ui, "Change reveal").onClick();
+  assert.equal(statusText(ui), "Select a reveal group (or a layer inside it) in the Scene Window first.");
+});
+
+test("⚙ opens the settings popover with the three groups: Sky styles, Preferences and About", () => {
+  const { ui } = runPanel();
+  findButton(ui, "⚙").onClick();
+  const popover = ui._all().find((w) => w._popover);
+  assert.ok(popover, "the settings popover was shown");
+  const groups = popover._layout._items[0]._items;
+  assert.deepEqual(groups.map((p) => p._layout._items[0]._items[0]._text), ["Sky styles", "Preferences", "About"]);
 });
