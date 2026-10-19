@@ -1,7 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const vm = require("node:vm");
-const { buildPanel } = require("../tools/buildlib.js");
+const fs = require("node:fs");
+const path = require("node:path");
+const { buildPanel, buildRuntimeSource, ROOT, CAVALRY_FILES } = require("../tools/buildlib.js");
 
 // A minimal in-memory Cavalry stub: settings files, a timer, and nothing else the placeholder panel
 // and its update check touch. Later tasks add to it as the panel grows.
@@ -110,4 +112,12 @@ test("clicking a tab selects it and shows only its page", () => {
   assert.equal(sky._background, "#1c1c1c", "the other tab goes back to the shadow colour");
   const pages = ui._root()._items[1]._items;
   assert.deepEqual(pages.map((p) => p._hidden), [true, false, true]);
+});
+
+test("the panel bundle embeds ASTRO_SKY_SRC", () => {
+  const src = buildPanel();
+  assert.ok(src.includes("var ASTRO_SKY_SRC = " + JSON.stringify(buildRuntimeSource("sky")) + ";"));
+  const cavalryStart = src.indexOf(fs.readFileSync(path.join(ROOT, CAVALRY_FILES[0]), "utf8"));
+  assert.ok(src.indexOf("var AstroExpression") < src.indexOf("var ASTRO_SKY_SRC = "), "after the core files");
+  assert.ok(src.indexOf("var ASTRO_SKY_SRC = ") < cavalryStart, "before the cavalry files");
 });

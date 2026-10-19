@@ -5,7 +5,9 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 // Each in-layer runtime is a list of src/core files, registered under a name by the task that adds it.
 const RUNTIMES = {};
-const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/stars.js"];
+RUNTIMES.sky = ["src/core/sky.js", "src/core/stars.js", "src/core/render.js"];
+const CORE_FILES = ["src/core/util.js", "src/core/update.js", "src/core/catalog.js", "src/core/sky.js", "src/core/stars.js",
+  "src/core/render.js", "src/core/expression.js"];
 const CAVALRY_FILES = ["src/cavalry/attrs.js", "src/cavalry/net.js", "src/cavalry/style.js", "src/cavalry/tips.js",
   "src/cavalry/cog.js", "src/cavalry/updatecheck.js", "src/cavalry/panel.js"];
 
@@ -43,6 +45,7 @@ function buildPanel(options = {}) {
     "// Source: https://github.com/optative-visuals/CavalryAstro — this program comes with ABSOLUTELY NO WARRANTY.",
     "var ASTRO_VERSION = " + JSON.stringify(version) + ";",
     ...CORE_FILES.map(read),
+    "var ASTRO_SKY_SRC = " + JSON.stringify(buildRuntimeSource("sky")) + ";",
     ...CAVALRY_FILES.map(read)
   ].join("\n;\n");
 }
