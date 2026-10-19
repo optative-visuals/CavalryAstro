@@ -4,8 +4,8 @@
 if (typeof AstroCatalog === "undefined" && typeof require !== "undefined") { var AstroCatalog = require("./catalog.js"); }
 
 var AstroStars = (function () {
-  // Radius at magnitude -1.5 is 6 px and at magnitude 6 is 0.6 px (a factor of 10 over 7.5 magnitudes).
-  var R_BRIGHT = 6, MAG_BRIGHT = -1.5, MAG_SPAN = 7.5;
+  // Radius at magnitude -1.5 is 10 px and at magnitude 6 is 1.0 px (a factor of 10 over 7.5 magnitudes).
+  var R_BRIGHT = 10, MAG_BRIGHT = -1.5, MAG_SPAN = 7.5;
   // Stars fade to nothing across this many magnitudes before the limit, so they do not pop out.
   var FADE_SPAN = 0.5;
 

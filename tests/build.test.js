@@ -397,6 +397,14 @@ test("createSky makes one group holding a Camera, a background, star bands, a gl
   assert.equal(api.getChildren(sky.groupId).length, layers.bands.length + 8);
 });
 
+// A texts layer's text size is its textSize input, the eighth input (index 7) of the texts kind.
+const TEXT_SIZE_ATTR = "generator.array.7";
+
+test("the whole-sky names start at text size 22", () => {
+  const { api, layers } = skyFixture();
+  assert.equal(api.get(layers.names, TEXT_SIZE_ATTR), 22);
+});
+
 test("the sky stacks from the bottom: camera, background, borders, lines, glow, stars, names", () => {
   const { api, sky, layers } = skyFixture();
   const bottomUp = api.getChildren(sky.groupId).slice().reverse().map((id) => api.getNiceName(id));
@@ -659,6 +667,11 @@ test("createReveal makes the members: the amount, the staged utilities, lines, b
   const title = childNamed(api, reveal.groupId, "Title");
   assert.equal(api.getLayerType(title), "textShape");
   assert.equal(api.get(title, "text"), "Orion", "Realistic writes names in title case");
+});
+
+test("the reveal labels start at text size 26", () => {
+  const { api, reveal } = revealFixture();
+  assert.equal(api.get(childNamed(api, reveal.groupId, "Reveal labels"), TEXT_SIZE_ATTR), 26);
 });
 
 test("the reveal star layers ignore the darkness limit", () => {

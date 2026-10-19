@@ -21,9 +21,9 @@ test("radius strictly decreases from magnitude -1.5 to 6 at limit 7", () => {
   }
 });
 
-test("radius is about 6 px for magnitude -1.5 and 0.6 px for magnitude 6 at size 1", () => {
-  assert.ok(Math.abs(St.radius(-1.5, 7, 1) - 6) < 1e-9);
-  assert.ok(Math.abs(St.radius(6, 7, 1) - 0.6) < 1e-9);
+test("radius is 10 px for magnitude -1.5 and 1.0 px for magnitude 6 at size 1", () => {
+  assert.ok(Math.abs(St.radius(-1.5, 7, 1) - 10) < 1e-9);
+  assert.ok(Math.abs(St.radius(6, 7, 1) - 1.0) < 1e-9);
 });
 
 test("radius scales linearly with size", () => {

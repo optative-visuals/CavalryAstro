@@ -21,7 +21,7 @@ var AstroStyles = (function () {
     return t;
   }
   var BUILT_IN = [
-    make("Realistic", ["#05070d", "#3a4f74", "#25344f", "#d6deef", "#ffd166", "#ffd166", "#ffd166", "#ffffff"], [0.8, 0.6, 1.8, 1.2],
+    make("Realistic", ["#05070d", "#6f8fc8", "#3f5a88", "#d6deef", "#ffd166", "#ffd166", "#ffd166", "#ffffff"], [1.2, 0.6, 1.8, 1.2],
       { mode: "true", colour: "#ffffff", glow: 0.6, font: "Helvetica", nameCase: "title" }),
     make("Mono", ["#0a0a0a", "#4a4a4a", "#2e2e2e", "#e6e6e6", "#ffffff", "#ffffff", "#ffffff", "#ffffff"], [0.6, 0.5, 1.5, 1.2],
       { mode: "mono", colour: "#f2f2f2", glow: 0.2, font: "Helvetica", nameCase: "upper" }),

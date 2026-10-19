@@ -27,6 +27,12 @@ test("Realistic is true-colour on a dark background with glow 0.6", () => {
   assert.equal(realistic.glow, 0.6);
 });
 
+test("Realistic lines and borders are the brighter blues, with lines 1.2 wide", () => {
+  assert.equal(realistic.lines, "#6f8fc8");
+  assert.equal(realistic.borders, "#3f5a88");
+  assert.equal(realistic.linesWidth, 1.2);
+});
+
 test("starColours: Realistic gives the true colour bands, Mono gives seven copies of one colour", () => {
   assert.deepEqual(T.starColours(realistic), AstroStars.BAND_COLOURS);
   const mono = T.find("Mono", []);

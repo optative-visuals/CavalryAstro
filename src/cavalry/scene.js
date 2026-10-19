@@ -10,6 +10,8 @@ var AstroScene = (function () {
   // The sky group keeps the record of the Spotlight: its id and the reveal amounts it was built from.
   var PART_KEY = "astroPart", SPOT_KEY = "astroSpotlight";
   var GLOW_MAG = 2.5, GLOW_SIZE = 3, GLOW_BLUR = 6;
+  // Default text sizes of the whole-sky constellation names and of each reveal's star labels.
+  var NAMES_TEXT_SIZE = 22, REVEAL_LABEL_TEXT_SIZE = 26;
   var PARTS = ["lines", "borders", "names"];
   var NAMES = { camera: "Camera", background: "Sky background", glow: "Star glow", glowLevel: "Star glow opacity",
     lines: "Constellation lines", borders: "Constellation borders", names: "Constellation names" };
@@ -248,7 +250,7 @@ var AstroScene = (function () {
       var band = skyShape(groupId, cameraId, "Stars · band " + b, "stars", bands[b], { category: "stars", band: b }, c);
       applyStyle(band, { fill: colours[b] });
     }
-    var names = skyShape(groupId, cameraId, NAMES.names, "texts", namesData(data.cons, theme.nameCase), { category: "names" }, c);
+    var names = skyShape(groupId, cameraId, NAMES.names, "texts", namesData(data.cons, theme.nameCase), { category: "names" }, c, { textSize: NAMES_TEXT_SIZE });
     applyStyle(names, { fill: theme.names });
     setOne(names, "hidden", true);
     var made = { groupId: groupId, cameraId: cameraId, name: name }, ctl = syncControls(made);
@@ -817,7 +819,7 @@ var AstroScene = (function () {
         var text = AstroStars.labelText(data.stars.name[row], data.stars.bayer[row], c.id, "bayer");
         if (text) items.push([text, data.stars.ra[row], data.stars.dec[row]]);
       });
-      var labels = skyShape(groupId, s.cameraId, "Reveal labels", "texts", { items: items }, { category: "revealLabels" }, cam);
+      var labels = skyShape(groupId, s.cameraId, "Reveal labels", "texts", { items: items }, { category: "revealLabels" }, cam, { textSize: REVEAL_LABEL_TEXT_SIZE });
       applyStyle(labels, { fill: theme.revealLabels });
       api.connect(labelId, A.DRIVER_OUTPUT_ATTR, labels, "opacity", true);
     }
