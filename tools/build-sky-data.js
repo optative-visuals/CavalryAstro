@@ -7,7 +7,7 @@
 //   d3-celestial data: constellations.json, constellations.lines.json, constellations.bounds.json
 //     ofrohn/d3-celestial @ 7e720a3de062059d4c5400a379146a601d9010e0. Licence: BSD-3-Clause.
 //
-// Output format is documented in .superpowers/sdd/.../task-1-brief.md and read by src/core/catalog.js.
+// The output format is read by src/core/catalog.js; tests/skydata.test.js checks the committed files.
 const fs = require("node:fs");
 const path = require("node:path");
 const { GREEK } = require("../src/core/catalog.js");
