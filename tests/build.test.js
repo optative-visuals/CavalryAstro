@@ -606,7 +606,7 @@ test("the fly target of each of the 88 constellations frames every border point 
     const out = [0, 0];
     pts.forEach((p) => {
       assert.ok(proj(p[0], p[1], out), c.latin + " point in front");
-      assert.ok(Math.abs(out[0]) <= 960 && Math.abs(out[1]) <= 540, c.latin + " at " + out);
+      assert.ok(Math.abs(out[0]) <= 0.85 * 960 + 1 && Math.abs(out[1]) <= 0.85 * 540 + 1, c.latin + " at " + out);
     });
   });
 });

@@ -503,11 +503,11 @@ var AstroScene = (function () {
   // The view a constellation is framed in: its centre is the spherical mean of its border points, and its fov is the
   // smallest that holds every border point and line vertex inside 85 % of the comp's width and height.
   var FRAME_SHARE = 0.85;
-  function constellationFov(c, compW, compH) {
+  function constellationFov(c, centre, compW, compH) {
     var pts = [];
     (c.border || []).forEach(function (ring) { ring.forEach(function (p) { pts.push(p); }); });
     (c.lines || []).forEach(function (line) { line.forEach(function (p) { pts.push(p); }); });
-    return AstroSky.fitFov(pts, c.centre, compW, compH, FRAME_SHARE);
+    return AstroSky.fitFov(pts, centre, compW, compH, FRAME_SHARE);
   }
   function constellationCentre(c) {
     var pts = [];
@@ -523,7 +523,7 @@ var AstroScene = (function () {
       var c = data.cons[index];
       if (!c) throw new Error("No constellation at index " + index);
       var comp = compSize(), centre = constellationCentre(c);
-      return { kind: kind, index: index, label: c.latin, ra: centre[0], dec: centre[1], fov: constellationFov(c, comp.width, comp.height) };
+      return { kind: kind, index: index, label: c.latin, ra: centre[0], dec: centre[1], fov: constellationFov(c, centre, comp.width, comp.height) };
     }
     if (kind === "star") {
       var st = data.stars;
