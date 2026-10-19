@@ -115,11 +115,17 @@ function makeFakeUi() {
     if (typeof this.onSelectionChanged === "function") this.onSelectionChanged(this.getSelection());
   };
 
+  // Cavalry's ui.ProgressBar (setMaximum, setValue): the Imagery tab's build progress.
+  function ProgressBar() { Widget.call(this, "ProgressBar"); this._value = 0; this._max = 100; }
+  ProgressBar.prototype = Object.create(Widget.prototype);
+  ProgressBar.prototype.setValue = function (v) { this._value = Number(v); };
+  ProgressBar.prototype.setMaximum = function (m) { this._max = Number(m); };
+
   let root = null;
   return {
     Label: Label, Button: Button, Container: Container, VLayout: VLayout, HLayout: HLayout, Draw: Draw,
     DropDown: DropDown, LineEdit: LineEdit, NumericField: NumericField, Checkbox: Checkbox, Modal: Modal,
-    Slider: Slider, List: List,
+    Slider: Slider, List: List, ProgressBar: ProgressBar,
     add: function (w) { root = w; },
     show: function () { this._shown = true; },
     setTitle: function (t) { this._title = t; },
@@ -388,13 +394,13 @@ test("the bundle never calls api.processEvents", () => {
   assert.equal(/api\.processEvents\s*\(/.test(buildPanel()), false);
 });
 
-test("the panel opens with tabs Sky, Stars, Reveal and a ⚙ button", () => {
+test("the panel opens with tabs Sky, Stars, Reveal, Imagery and a ⚙ button", () => {
   const { ui } = runPanel();
   assert.equal(ui._shown, true, "ui.show() was called");
   assert.equal(ui._title, "CavalryAstro");
   // The tab bar and the ⚙ cog are the first row; the pages (and the Sky page's buttons) come after it.
   const labels = buttonsIn(ui._root()._items[0]).map((b) => b._text);
-  assert.deepEqual(labels, ["Sky", "Stars", "Reveal", "⚙"]);
+  assert.deepEqual(labels, ["Sky", "Stars", "Reveal", "Imagery", "⚙"]);
 });
 
 test("clicking a tab selects it and shows only its page", () => {
@@ -404,7 +410,7 @@ test("clicking a tab selects it and shows only its page", () => {
   assert.equal(stars._background, "#373737", "the selected tab takes the lighter colour");
   assert.equal(sky._background, "#1c1c1c", "the other tab goes back to the shadow colour");
   const pages = ui._root()._items[1]._items;
-  assert.deepEqual(pages.map((p) => p._hidden), [true, false, true]);
+  assert.deepEqual(pages.map((p) => p._hidden), [true, false, true, true]);
 });
 
 test("the panel bundle carries the sky preview: AstroPreview as core, AstroPreviewPanel before panel.js", () => {
@@ -1319,7 +1325,7 @@ test("Refresh controls and every press prepare the picked sky's reveals", () => 
 
 test("every control in the panel has a hover tip, the settings popover's included", () => {
   const { ui } = runPanel();
-  const tabs = ["Sky", "Stars", "Reveal"];
+  const tabs = ["Sky", "Stars", "Reveal", "Imagery"];
   const controls = ui._all().filter((w) => ["Button", "DropDown", "LineEdit", "NumericField", "Checkbox", "Slider", "List"].indexOf(w.kind) >= 0)
     .filter((w) => !(w.kind === "Button" && tabs.indexOf(w._text) >= 0));
   assert.ok(controls.length > 20, "the panel has its controls");
@@ -1933,4 +1939,105 @@ test("a build ends by syncing the Controls", () => {
   f.context.AstroControlPanel.sync = (s) => { synced++; return real(s); };
   buildImagery(f, plan);
   assert.ok(synced >= 1, "the Controls were synced");
+});
+
+// ---- The Imagery tab (Task 6) -----------------------------------------------------------------------------
+const CREDIT_TEXT = "NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC";
+// A panel with a sky picked (made at the preview frame): the panel, and the sky.
+function panelWithSky() {
+  const f = runPanel();
+  pickNewSky(f.ui);
+  findButton(f.ui, "Create sky here").onClick();
+  return Object.assign(f, { sky: f.context.AstroScene.findSkies()[0] });
+}
+// Opens the Imagery tab as the user does: its tab button.
+function openImageryTab(ui) { findButton(ui, "Imagery").onClick(); }
+// The Imagery tab's note: the one label showing a plugin or pack message, if any.
+function imageryNoteText(ui) {
+  const note = widgetsOfKind(ui, "Label").find((l) => l._text === IMG_PLUGIN_MISSING || l._text === IMG_PACK_MISSING);
+  return note ? note._text : "";
+}
+
+test("the Imagery tab's source has one entry, NASA Deep Star Maps", () => {
+  const { ui } = panelWithSky();
+  openImageryTab(ui);
+  assert.deepEqual(dropDownWith(ui, "NASA Deep Star Maps")._entries, ["NASA Deep Star Maps"]);
+});
+
+test("Build imagery with the plugin missing shows the plugin message in the status line, and asks nothing", () => {
+  const { ui, api } = panelWithSky();
+  api._types = [];
+  openImageryTab(ui);
+  findButton(ui, "Build imagery").onClick();
+  assert.equal(statusText(ui), IMG_PLUGIN_MISSING);
+  assert.equal(ui._modal.asked.length, 0);
+});
+
+test("the Imagery tab's note gives the plugin message while the plugin is missing, and the pack message when only the pack is", () => {
+  const { ui, api } = panelWithSky();
+  api._types = [];
+  openImageryTab(ui);
+  assert.equal(imageryNoteText(ui), IMG_PLUGIN_MISSING);
+  api._types = [{ type: "cavalryAstro::reproject" }];
+  openImageryTab(ui);
+  assert.equal(imageryNoteText(ui), IMG_PACK_MISSING, "the plugin is there, the pack is not");
+});
+
+test("Build imagery asks once with the tile count; No builds nothing", () => {
+  const { ui, api, context, sky } = panelWithSky();
+  const S = context.AstroScene, plan = S.planImagery(sky);
+  putPack(api);
+  putTiles(api, plan);
+  openImageryTab(ui);
+  ui._modal.answer = false;
+  ui._modal.asked = [];
+  findButton(ui, "Build imagery").onClick();
+  assert.equal(ui._modal.asked.length, 1, "asked once");
+  assert.ok(ui._modal.asked[0].text.indexOf(plan.count + " imagery tile") >= 0, "the tile count is in the question");
+  assert.equal(statusText(ui), "Nothing was built.");
+  assert.equal(S.findImagery(sky), null);
+});
+
+test("Build imagery on Yes builds in steps, says how many tiles, and the Controls gain the Imagery rows after Background", () => {
+  const { ui, api, context, sky } = panelWithSky();
+  const S = context.AstroScene, plan = S.planImagery(sky);
+  putPack(api);
+  putTiles(api, plan);
+  openImageryTab(ui);
+  const from = api._timers.length;
+  findButton(ui, "Build imagery").onClick();
+  runNewTimers(api, from);
+  assert.match(statusText(ui), /^Imagery built: \d+ tiles?\.$/);
+  assert.ok(S.findImagery(sky), "the photo is built");
+  const labels = promotedLabels(api, compNamed(api, "Sky 1 Sky controls"));
+  const at = labels.indexOf("Background · Colour");
+  assert.deepEqual(labels.slice(at + 1, at + 4), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness"]);
+});
+
+test("Cancel with nothing building says so", () => {
+  const { ui } = panelWithSky();
+  openImageryTab(ui);
+  findButton(ui, "Cancel").onClick();
+  assert.match(statusText(ui), /Nothing is being built/);
+});
+
+test("Add attribution makes one \"Imagery credit\" text layer, bottom-right of the sky, and pressing it twice still makes one", () => {
+  const { ui, api, sky } = panelWithSky();
+  openImageryTab(ui);
+  findButton(ui, "Add attribution").onClick();
+  findButton(ui, "Add attribution").onClick();
+  const credits = api.getChildren(sky.groupId).filter((id) => api.getNiceName(id) === "Imagery credit");
+  assert.equal(credits.length, 1, "one credit layer");
+  assert.equal(api.getLayerType(credits[0]), "textShape");
+  assert.equal(api.get(credits[0], "text"), CREDIT_TEXT);
+  const pos = api.get(credits[0], "position");
+  assert.ok(pos[0] > 0 && pos[1] < 0, "right of centre and below it");
+});
+
+test("every Imagery tab control has a hover tip", () => {
+  const { ui, context } = panelWithSky();
+  openImageryTab(ui);
+  ["imagery.source", "imagery.build", "imagery.cancel", "imagery.attribution", "imagery.progress"].forEach((key) => {
+    assert.ok(tipped(ui, context, key), "a tip for " + key);
+  });
 });
