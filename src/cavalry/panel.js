@@ -231,7 +231,13 @@ function reloadStyleFiles(quiet) {
 }
 
 // The sky the preview shows its colours of: the picked sky's own theme, or the picked theme for New sky.
-function previewTheme() { return newSkySelected() ? pickedTheme() : AstroScene.skyTheme(currentSky()); }
+// A style picked in the Style dropdown is previewed over the sky's own theme until another sky is picked (Apply to sky
+// is what changes the sky). Geo's style dropdown works the same way.
+var stylePreview = null;
+function previewTheme() {
+  if (stylePreview) return stylePreview;
+  return newSkySelected() ? pickedTheme() : AstroScene.skyTheme(currentSky());
+}
 // Paints the preview's sky (stars, lines, names) in a theme's colours, once per change of colour.
 function setPreviewTheme(theme) {
   var key = JSON.stringify(AstroStyles.previewColors(theme));
@@ -604,7 +610,7 @@ var skyColumn = column(tipsBox.concat([
 ]));
 
 // ---- Handlers -------------------------------------------------------------------------------------------
-skyPicker.onValueChanged = guard(function () { refreshNewSkyFields(); previewShowSky(); });
+skyPicker.onValueChanged = guard(function () { stylePreview = null; refreshNewSkyFields(); previewShowSky(); });
 resultPicker.onValueChanged = guard(function () { previewFollowPicked(); });
 // Enter in Search lists the results, but never runs the same text twice.
 searchField.onValueCommitted = guardWork(function () {
@@ -709,6 +715,7 @@ refreshStylesBtn.onClick = guardAction(function () {
 themePicker.onValueChanged = guard(function () {
   if (refreshingThemes) return;
   AstroNet.updateSettings({ skyStyle: pickedTheme().name });
+  stylePreview = pickedTheme();
   previewShowSky();
 });
 applyStyleBtn.onClick = guardAction(function () {

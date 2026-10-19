@@ -1094,6 +1094,23 @@ test("the Sky tab: New sky with Create sky here makes Sky 1, then Sky 2, at the 
   assert.equal(S.findSkies().length, 2);
 });
 
+test("picking a style in the Style dropdown shows its colours in the preview at once, and does not apply it", () => {
+  const { ui, context } = runPanel();
+  const S = context.AstroScene, shown = [], applied = [];
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  assert.equal(S.findSkies().length, 1, "a sky is picked, so the preview shows its own Realistic theme");
+  const setSky = context.preview.setSky;
+  context.preview.setSky = function (sky) { shown.push(sky.theme); return setSky.call(this, sky); };
+  const applyTheme = S.applyTheme;
+  S.applyTheme = function (sky, theme) { applied.push(theme); return applyTheme(sky, theme); };
+  const picker = dropDownWith(ui, "Mono");
+  picker.setValue(picker._entries.indexOf("Mono"));
+  picker.onValueChanged();
+  assert.equal(shown[shown.length - 1].name, "Mono", "the preview took the Mono colours");
+  assert.equal(applied.length, 0, "nothing is applied until Apply to sky is pressed");
+});
+
 test("searching orion lists Orion first, and Enter in Search runs the search too", () => {
   const { ui } = runPanel();
   search(ui, "orion");
