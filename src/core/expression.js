@@ -126,7 +126,41 @@ var AstroExpression = (function () {
     return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(GLOW_LEVEL_INPUTS) + "_i0 * _i1 / 100;\n";
   }
 
+  // ---- Imagery (Task 5). Utilities that read the Camera's five values, and the runtime (ASTRO_REPROJECT_SRC). ----
+  var IMAGERY_CAMERA_INPUTS = [["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["camProjection", 0]];
+  // The photo's opacity (0..100) and the spotlight's visible share (0..100) of it.
+  var IMAGERY_OPACITY_INPUTS = [["opacity", 100], ["spotVisible", 100]];
+  var IMAGERY_CAM = "{ra: _i0, dec: _i1, fov: _i2, rotation: _i3, projection: _i4}";
+  // The View's results from AstroReproject.viewFor. Position: the camera's RA (unwrapped, as the tiles' copies are) and the
+  // box's Dec middle, both scaled, so a tile at its degrees lands where tileLocal puts it; scale; and the filter's view scale
+  // and view offset (uncentred, as the shader reads them).
+  var IMAGERY_VIEW_RESULTS = {
+    position: "[-_v.scale * _i0, -_v.scale * (_v.dec0 + _v.dec1) / 2];",
+    scale: "[_v.scale, _v.scale];",
+    viewScale: "_v.scale;",
+    viewOffset: "[_v.offset[0], _v.offset[1]];"
+  };
+  function imageryViewExpression(runtimeSrc, which, frameW, frameH, meta) {
+    if (!Object.prototype.hasOwnProperty.call(IMAGERY_VIEW_RESULTS, which)) throw new Error("Unknown imagery view driver: " + which);
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
+      "var _v = AstroReproject.viewFor(" + IMAGERY_CAM + ", " + Number(frameW) + ", " + Number(frameH) + ");\n" + IMAGERY_VIEW_RESULTS[which] + "\n";
+  }
+  // A level's opacity (0..100) at the camera (AstroImagery.levelOpacity).
+  function imageryLevelExpression(runtimeSrc, L, frameW, meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
+      "AstroImagery.levelOpacity(" + Number(L) + ", " + IMAGERY_CAM + ", " + Number(frameW) + ");\n";
+  }
+  // The photo's opacity: its opacity input times the spotlight's visible share, over 100.
+  function imageryOpacityExpression(meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(IMAGERY_OPACITY_INPUTS) + "_i0 * _i1 / 100;\n";
+  }
+
   return {
+    IMAGERY_CAMERA_INPUTS: IMAGERY_CAMERA_INPUTS,
+    IMAGERY_OPACITY_INPUTS: IMAGERY_OPACITY_INPUTS,
+    imageryViewExpression: imageryViewExpression,
+    imageryLevelExpression: imageryLevelExpression,
+    imageryOpacityExpression: imageryOpacityExpression,
     REVEAL_INPUTS: REVEAL_INPUTS,
     STAGE_INPUTS: STAGE_INPUTS,
     TITLE_INPUTS: TITLE_INPUTS,

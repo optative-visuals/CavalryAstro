@@ -137,8 +137,11 @@ const SKY_FILE = /\/CavalryAstro_assets\/sky\/(stars|constellations)\.json$/;
 function addSceneApi(api) {
   const COMP = "comp#1";
   // The comp runs frames 0-100 at 25 fps. Setting endFrame moves frameRange's end, as Cavalry does.
-  const store = { [COMP]: { frameRange: { x: 0, y: 100 }, endFrame: 100, playbackEnd: 100, fps: 25 } };
+  const store = { [COMP]: { frameRange: { x: 0, y: 100 }, endFrame: 100, playbackEnd: 100, fps: 25, resolution: { x: 1920, y: 1080 } } };
   const names = {}, parents = {}, layers = [], connections = [], keyframes = {}, userData = {}, paints = {}, outFrames = {};
+  // Comps (the map comp, and the source comps createComp makes), each layer's comp, and the assets (one id per path).
+  const comps = [COMP], compOf = {}, assetInfo = {}, assetByPath = {}, assetGroups = [];
+  let active = COMP;
   // A component's promoted attributes: { src: "layer.attr", name, notes } in list order (Cavalry's promotedAttributes).
   const promos = {};
   const promoRef = (k) => /^promotedAttributes\.(\d+)\.(name|notes)$/.exec(String(k));
@@ -154,7 +157,8 @@ function addSceneApi(api) {
   const layerType = (id) => String(id).split("#")[0];
   const readFile = api.readFromFile;
   Object.assign(api, {
-    getActiveComp: () => COMP,
+    getActiveComp: () => active,
+    setActiveComp: (c) => { if (!comps.includes(c)) throw new Error("No comp " + c); active = c; },
     getLayerType: layerType,
     getNiceName: (id) => names[id] || id,
     create: (type, name) => {
@@ -162,18 +166,63 @@ function addSceneApi(api) {
       names[id] = name || type;
       if (type === "javaScript") ensure(id)["array.0"] = 0;
       if (type === "javaScriptShape") ensure(id)["generator.array.0"] = 0;
+      compOf[id] = active;
       layers.push(id);
       return id;
     },
     primitive: (kind, name) => api.create("basicShape", name),
-    getCompLayers: () => layers.slice(),
+    getCompLayers: () => layers.filter((id) => compOf[id] === active),
+    // A comp: its layers go with it. A layer: it and its children, and the connections to them.
     deleteLayer: (id) => {
+      if (comps.includes(id)) {
+        layers.filter((l) => compOf[l] === id).forEach((l) => api.deleteLayer(l));
+        comps.splice(comps.indexOf(id), 1);
+        if (active === id) active = COMP;
+        return;
+      }
       const gone = [id];
       for (let i = 0; i < gone.length; i++) layers.filter((c) => parents[c] === gone[i]).forEach((c) => gone.push(c));
-      gone.forEach((g) => { const k = layers.indexOf(g); if (k >= 0) layers.splice(k, 1); delete parents[g]; });
+      gone.forEach((g) => { const k = layers.indexOf(g); if (k >= 0) layers.splice(k, 1); delete parents[g]; delete compOf[g]; });
       for (let i = connections.length - 1; i >= 0; i--) {
         if (gone.includes(connections[i][0]) || gone.includes(connections[i][2])) connections.splice(i, 1);
       }
+    },
+    // A new comp with Cavalry's defaults (1920 x 1080, frames 0-100 at 25 fps), made active by nothing.
+    createComp: (name) => {
+      const id = "comp#" + (nextId++);
+      store[id] = { frameRange: { x: 0, y: 100 }, endFrame: 100, playbackEnd: 100, fps: 25, resolution: { x: 1920, y: 1080 } };
+      comps.push(id);
+      names[id] = name;
+      return id;
+    },
+    createCompReference: (comp) => api.create("compReference", "Composition Reference"),
+    rename: (id, name) => { names[id] = name; },
+    // Cavalry returns the same asset for the same path; a file's resolution comes from api._assetRes (1024 square by default).
+    loadAsset: (p) => {
+      if (!assetByPath[p]) {
+        const id = "asset#" + (nextId++);
+        assetInfo[id] = { path: p, res: (api._assetRes || {})[p] || { x: 1024, y: 1024 } };
+        assetByPath[p] = id;
+      }
+      return assetByPath[p];
+    },
+    addAssetToComp: (asset) => {
+      const id = api.create("footage", "Footage");
+      ensure(id).resolution = JSON.parse(JSON.stringify(assetInfo[asset].res));
+      return id;
+    },
+    createAssetGroup: (name) => {
+      const id = "assetGroup#" + (nextId++);
+      names[id] = name;
+      assetGroups.push(id);
+      return id;
+    },
+    getAssetWindowLayers: () => assetGroups.slice(),
+    // The layer types this Cavalry has installed (api._types, which a test can change).
+    getAllLayerTypes: () => api._types.slice(),
+    // Cavalry's bringToFront acts on the selection and puts each selected layer on top of its siblings.
+    bringToFront: () => {
+      selection.forEach((id) => { const k = layers.indexOf(id); if (k >= 0) { layers.splice(k, 1); layers.push(id); } });
     },
     parent: (id, parentId) => { parents[id] = parentId; },
     getParent: (id) => parents[id] || "",
@@ -193,10 +242,9 @@ function addSceneApi(api) {
         if (m && promos[id]) { promos[id][Number(m[1])][m[2]] = obj[k]; return; }
         ensure(id)[k] = JSON.parse(JSON.stringify(obj[k]));
       });
-      if (id === COMP && obj.endFrame !== undefined) ensure(id).frameRange = { x: 0, y: obj.endFrame };
+      if (comps.includes(id) && obj.endFrame !== undefined) ensure(id).frameRange = { x: 0, y: obj.endFrame };
     },
     get: (id, attr) => {
-      if (id === COMP && attr === "resolution") return { x: 1920, y: 1080 };
       const pm = promoRef(attr);
       if (pm && promos[id] && promos[id][Number(pm[1])]) return promos[id][Number(pm[1])][pm[2]];
       // Like Cavalry: an input fed by a utility's array output reads that output's value, not its own.
@@ -276,7 +324,15 @@ function addSceneApi(api) {
     _promoted: (id) => (promos[id] || []).map((p) => p.src),
     _connections: connections,
     _store: store,
-    _paints: paints
+    _paints: paints,
+    _parents: parents,
+    _compOf: compOf,
+    _comps: comps,
+    _layers: layers,
+    _assetInfo: assetInfo,
+    _assetGroups: assetGroups,
+    _types: [{ type: "cavalryAstro::reproject" }],
+    _assetRes: {}
   });
   // Cavalry returns a material or stroke colour as {r, g, b, a}, not a hex string (Geo's verified API notes). The fake
   // does the same, so the code under test meets the real shape: a hex value written is read back as an object.
@@ -1506,3 +1562,315 @@ test("⚙ opens the settings popover with the three groups: Sky styles, Preferen
   const groups = popover._layout._items[0]._items;
   assert.deepEqual(groups.map((p) => p._layout._items[0]._items[0]._text), ["Sky styles", "Preferences", "About"]);
 });
+
+// ---- Imagery in a sky (Task 5) ----------------------------------------------------------------------
+const AstroImagery = require("../src/core/imagery.js");
+const AstroReproject = require("../src/core/reproject.js");
+const AstroSky = require("../src/core/sky.js");
+const IMG_PLUGIN_MISSING = "Imagery needs the CavalryAstro plugin: drag the CavalryAstro_plugin folder from the download into the Cavalry window once, then press Build imagery again.";
+const IMG_PACK_MISSING = "Imagery needs the imagery pack: download CavalryAstro-imagery.zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
+const IMG_ASSETS = "C:/fake/AppData/Scripts/CavalryAstro_assets";
+const IMG_GROUP = "Imagery: NASA Deep Star Maps";
+
+function tilePathOf(t) { return AstroImagery.tilePath(IMG_ASSETS, t.L, t.row, t.col); }
+// The imagery on disk: a file for every planned tile, except the keys ("L_row_col") in skip.
+function putTiles(api, plan, skip) {
+  plan.items.forEach((t) => {
+    if ((skip || []).indexOf(t.L + "_" + t.row + "_" + t.col) >= 0) return;
+    api._files[tilePathOf(t)] = "jpg";
+  });
+}
+// The level 0 pack: every L0 tile on disk.
+function putPack(api) {
+  [0, 1].forEach((r) => [0, 1, 2, 3].forEach((c) => { api._files[tilePathOf({ L: 0, row: r, col: c })] = "jpg"; }));
+}
+// Runs the timers a job started, to the end, as Cavalry's timer would step them.
+function runNewTimers(api, from) {
+  for (let guard = 0; guard < 100000; guard++) {
+    const live = api._timers.slice(from).filter((t) => t.active);
+    if (!live.length) return;
+    live.forEach((t) => t.callbacks.onTimeout());
+  }
+  throw new Error("the imagery job never finished");
+}
+// An imagery build run to its end: its result (ok, groupId, tiles, missing, message) and its progress reports.
+function buildImagery(f, plan, opts) {
+  const done = { result: null, progress: [] }, from = f.api._timers.length;
+  const job = f.S.beginImageryBuild(f.sky, plan, (p) => done.progress.push(p), (r) => { done.result = r; }, opts);
+  runNewTimers(f.api, from);
+  return { job: job, result: done.result, progress: done.progress };
+}
+// Everything an imagery build made: its group and the layers in it, and its source comp and the layers in that.
+function imageryIds(f, im) {
+  const inside = (id) => { for (let p = id, n = 0; p && n < 50; n++) { p = f.api.getParent(p); if (p === im.groupId) return true; } return false; };
+  return f.api._layers.filter((id) => inside(id) || f.api._compOf[id] === im.sourceComp);
+}
+// A tile footage layer in the source comp, found by its tag (level, row, column and RA copy).
+function tileLayer(f, im, p) {
+  const view = f.api._layers.find((id) => f.api._compOf[id] === im.sourceComp && f.api.getNiceName(id) === "View");
+  const level = f.api.getChildren(view).find((id) => f.api.getNiceName(id) === "z " + p.L);
+  return f.api.getChildren(level).find((id) => {
+    const m = f.api.getUserDataKey(id, "astroPart");
+    return m && m.category === "imageryTile" && m.L === p.L && m.row === p.row && m.col === p.col && m.j === (p.j || 0);
+  });
+}
+// A tile's place in the source comp: the View's position and scale (driven, so evaluated at the camera), then the tile's own.
+function sourceWorld(f, im, p) {
+  const cam = f.S.readCamera(f.sky);
+  const values = { camRa: cam.ra, camDec: cam.dec, camFov: cam.fov, camRotation: cam.rotation, camProjection: cam.projection };
+  const driver = (name) => childNamed(f.api, im.groupId, name);
+  const pos = runUtility(f.context, f.api.get(driver("Imagery driver: View position"), "expression"), values);
+  const s = runUtility(f.context, f.api.get(driver("Imagery driver: View scale"), "expression"), values)[0];
+  const id = tileLayer(f, im, p);
+  return { x: pos[0] + s * f.api.get(id, "position.x"), y: pos[1] + s * f.api.get(id, "position.y"), scale: s * f.api.get(id, "scale.x") };
+}
+function starNamed(S, name) {
+  const st = S.skyData().stars, i = st.name.indexOf(name);
+  return { i: i, ra: st.ra[i], dec: st.dec[i] };
+}
+
+test("without the plugin type, the build refuses with the exact message and makes nothing", () => {
+  const f = skyFixture();
+  f.api._types = [];
+  const before = f.api._layers.length;
+  assert.equal(f.S.reprojectAvailable(), false);
+  assert.throws(() => f.S.planImagery(f.sky), { message: IMG_PLUGIN_MISSING });
+  assert.throws(() => f.S.beginImageryBuild(f.sky, { items: [], placements: [] }, () => {}, () => {}), { message: IMG_PLUGIN_MISSING });
+  assert.equal(f.api._layers.length, before);
+  assert.equal(f.api._comps.length, 1, "no source comp");
+});
+
+test("without the imagery pack, the build refuses with the exact message and makes nothing", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  const before = f.api._layers.length;
+  assert.throws(() => f.S.beginImageryBuild(f.sky, plan, () => {}, () => {}), { message: IMG_PACK_MISSING });
+  assert.equal(f.api._layers.length, before);
+  assert.equal(f.api._comps.length, 1, "no source comp");
+});
+
+test("the pack check lists the level 0 tiles it lacks, and passes with all eight", () => {
+  const f = skyFixture();
+  assert.equal(f.S.reprojectAvailable(), true);
+  const none = f.S.imageryPackAvailable();
+  assert.equal(none.ok, false);
+  assert.equal(none.missing.length, 8);
+  assert.equal(none.missing[0], IMG_ASSETS + "/imagery/nasa-dsm/L0/0_0.jpg");
+  putPack(f.api);
+  const all = f.S.imageryPackAvailable();
+  assert.equal(all.ok, true);
+  assert.equal(all.missing.length, 0);
+});
+
+test("a build for a static Orion camera makes the source comp, the View group, an L0 group with 8 tiles and the imagery group with one reference and one filter", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  const b = buildImagery(f, plan);
+  assert.equal(b.result.ok, true, b.result.error);
+  assert.equal(b.result.missing, 0);
+  const im = f.S.findImagery(f.sky);
+  assert.equal(f.api.getNiceName(im.groupId), IMG_GROUP);
+  assert.equal(f.api.getNiceName(im.sourceComp), "Imagery source: NASA Deep Star Maps · Sky 1");
+  assert.deepEqual(f.api.get(im.sourceComp, "resolution"), { x: 4104, y: 4104 });
+  const view = f.api._layers.find((id) => f.api._compOf[id] === im.sourceComp && f.api.getNiceName(id) === "View");
+  assert.ok(view, "a View group in the source comp");
+  assert.equal(f.api.getChildren(childNamed(f.api, view, "z 0")).length, 8);
+  const kinds = f.api.getChildren(im.groupId).map((id) => f.api.getLayerType(id));
+  assert.equal(kinds.filter((t) => t === "compReference").length, 1);
+  assert.equal(kinds.filter((t) => t === "cavalryAstro::reproject").length, 1);
+});
+
+test("the imagery sits above the star layers and below the constellation lines, borders and names", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky), L = f.S.skyLayers(f.sky);
+  const bottomUp = f.api.getChildren(f.sky.groupId).slice().reverse();
+  const at = (id) => bottomUp.indexOf(id);
+  L.bands.concat([L.glow]).forEach((id) => assert.ok(at(im.groupId) > at(id), "above " + f.api.getNiceName(id)));
+  [L.lines, L.borders, L.names].forEach((id) => assert.ok(at(im.groupId) < at(id), "below " + f.api.getNiceName(id)));
+});
+
+test("the filter's camera inputs are connected to the Camera, and frameW is the comp's width", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky);
+  ["camRa", "camDec", "camFov", "camRotation"].forEach((attr, i) => {
+    assert.equal(f.api.getInConnection(im.filterId, attr), f.sky.cameraId + ".array." + i, attr);
+  });
+  assert.equal(f.api.get(im.filterId, "frameW"), 1920);
+});
+
+test("Betelgeuse's tile is where the shader samples it: its source-comp place is sourcePoint minus 2052, and tileLocal's", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky), star = starNamed(f.S, "Betelgeuse");
+  assert.ok(star.i >= 0, "Betelgeuse is in the catalogue");
+  const cam = f.S.readCamera(f.sky), W = 1920, H = 1080, view = AstroReproject.viewFor(cam, W, H);
+  const pix = [0, 0];
+  assert.equal(AstroSky.makeProjector(cam, W)(star.ra, star.dec, pix), true, "Betelgeuse is in the frame");
+  const sp = AstroReproject.sourcePoint(cam, W, view, pix[0], pix[1]);
+  const L = AstroImagery.levelFor(cam, W), t = AstroImagery.tileOf(L, star.ra, star.dec);
+  const w = sourceWorld(f, im, { L: L, row: t.row, col: t.col });
+  const tl = AstroReproject.tileLocal(L, t.row, t.col, view, cam);
+  assert.ok(Math.abs(w.x - (sp[0] - 2052)) <= tl.scale * 512, "the star's x is inside its tile");
+  assert.ok(Math.abs(w.y - (sp[1] - 2052)) <= tl.scale * 512, "the star's y is inside its tile");
+  assert.ok(Math.abs(w.x - (tl.x - 2052)) < 1e-6, "x is tileLocal's");
+  assert.ok(Math.abs(w.y - (tl.y - 2052)) < 1e-6, "y is tileLocal's");
+  assert.ok(Math.abs(w.scale - tl.scale * 1028 / 1024) < 1e-9, "scale is tileLocal's, with the seam overlap");
+});
+
+test("across the RA seam, a camera at RA 359 shows a star at RA 5 in a tile copy beside it, placed where tileLocal puts it", () => {
+  const f = skyFixture();
+  f.S.setCamera(f.sky, { ra: 359, dec: 0, fov: 60, rotation: 0, projection: 0 });
+  const plan = f.S.planImagery(f.sky);
+  assert.ok(plan.placements.some((p) => p.j === 1), "a copy beside the 0/360 seam is planned");
+  putTiles(f.api, plan);
+  const b = buildImagery(f, plan);
+  assert.equal(b.result.ok, true, b.result.error);
+  const im = f.S.findImagery(f.sky), st = f.S.skyData().stars;
+  let star = -1;
+  for (let i = 0; i < st.count && star < 0; i++) if (st.ra[i] > 3 && st.ra[i] < 7 && Math.abs(st.dec[i]) < 3) star = i;
+  assert.ok(star >= 0, "a star near RA 5");
+  const cam = f.S.readCamera(f.sky), W = 1920, H = 1080, view = AstroReproject.viewFor(cam, W, H);
+  const pix = [0, 0];
+  assert.equal(AstroSky.makeProjector(cam, W)(st.ra[star], st.dec[star], pix), true);
+  const sp = AstroReproject.sourcePoint(cam, W, view, pix[0], pix[1]);
+  const L = AstroImagery.levelFor(cam, W), t = AstroImagery.tileOf(L, st.ra[star], st.dec[star]);
+  const w = sourceWorld(f, im, { L: L, row: t.row, col: t.col, j: 1 });
+  const tl = AstroReproject.tileLocal(L, t.row, t.col, view, cam);
+  assert.ok(Math.abs(w.x - (sp[0] - 2052)) <= tl.scale * 512, "the star is inside the copy");
+  assert.ok(Math.abs(w.x - (tl.x - 2052)) < 1e-6, "the copy is where tileLocal puts it");
+});
+
+test("with 3 tiles missing on disk, the build finishes, skips them and reports 3", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  const skip = plan.items.filter((t) => t.L > 0).slice(0, 3).map((t) => t.L + "_" + t.row + "_" + t.col);
+  putTiles(f.api, plan, skip);
+  const b = buildImagery(f, plan);
+  assert.equal(b.result.ok, true, b.result.error);
+  assert.equal(b.result.missing, 3);
+  assert.ok(b.result.message.indexOf("3") >= 0, b.result.message);
+  assert.ok(f.S.findImagery(f.sky), "the imagery is still made");
+});
+
+test("a tile is scaled from its real resolution: a 512-px file shows at twice the scale of a 1024-px one", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  const small = plan.placements.find((p) => p.L === 0 && p.row === 0 && p.col === 0 && p.j === 0);
+  const big = plan.placements.find((p) => p.L === 0 && p.row === 0 && p.col === 1 && p.j === 0);
+  f.api._assetRes[tilePathOf(small)] = { x: 512, y: 512 };
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky);
+  const ratio = f.api.get(tileLayer(f, im, small), "scale.x") / f.api.get(tileLayer(f, im, big), "scale.x");
+  assert.ok(Math.abs(ratio - 2) < 1e-9, "ratio " + ratio);
+});
+
+test("the build steps on a timer: every asset loads in the first step, then one tile per step", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  const steps = [], from = f.api._timers.length;
+  f.S.beginImageryBuild(f.sky, plan, (p) => steps.push(p), () => {}, { budgetMs: 0 });
+  const timer = f.api._timers[from];
+  assert.equal(timer.active, true, "the build runs on a timer");
+  const tiles = () => f.api._layers.filter((id) => f.api.getLayerType(id) === "footage").length;
+  timer.callbacks.onTimeout();
+  assert.equal(Object.keys(f.api._assetInfo).length, plan.items.length, "every asset is loaded in the first step");
+  assert.equal(tiles(), 0);
+  timer.callbacks.onTimeout();
+  assert.equal(tiles(), 1, "one tile in the second step");
+  assert.ok(steps.length >= 2, "progress is reported each step");
+});
+
+test("a rebuild leaves exactly one imagery group, and the Imagery · Opacity value set before the rebuild is kept", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const first = f.S.findImagery(f.sky);
+  f.api.set(first.opacityId, { "array.0": 42 });
+  const again = buildImagery(f, f.S.planImagery(f.sky));
+  assert.equal(again.result.ok, true, again.result.error);
+  const groups = f.api.getChildren(f.sky.groupId).filter((id) => f.api.getNiceName(id) === IMG_GROUP);
+  assert.equal(groups.length, 1, "one imagery group");
+  const comps = f.api._comps.filter((c) => f.api.getNiceName(c) === "Imagery source: NASA Deep Star Maps · Sky 1");
+  assert.equal(comps.length, 1, "one source comp");
+  const now = f.S.findImagery(f.sky);
+  assert.notEqual(now.groupId, first.groupId);
+  assert.equal(f.api.get(now.opacityId, "array.0"), 42);
+});
+
+test("with a reveal at Amount 100 and Spotlight 60, the imagery opacity utility's effective value is opacity × 0.4", () => {
+  const f = revealFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky), spot = childNamed(f.api, f.sky.groupId, "Spotlight");
+  assert.equal(f.api.getInConnection(im.opacityId, "array.1"), spot + ".id", "the photo follows the Spotlight");
+  const spotValue = runUtility(f.context, f.api.get(spot, "expression"), { amount0: 100, spotlight0: 60 });
+  const photo = runUtility(f.context, f.api.get(im.opacityId, "expression"), { opacity: 100, spotVisible: spotValue });
+  assert.equal(photo, 100 * 0.4);
+});
+
+test("setDarkness and applyTheme never touch any imagery layer", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky), ids = imageryIds(f, im);
+  assert.ok(ids.length > 10, "the imagery is there to be touched");
+  const snap = () => JSON.stringify(ids.map((id) => [id, f.api._store[id], f.api.getUserDataKey(id, "astroPart")]));
+  const before = snap();
+  f.S.setDarkness(f.sky, 30);
+  f.S.applyTheme(f.sky, "Mono");
+  assert.equal(snap(), before);
+});
+
+test("the build and removeImagery never delete an asset", () => {
+  const f = skyFixture();
+  const deleted = [], real = f.api.deleteLayer;
+  f.api.deleteLayer = (id) => { deleted.push(id); return real(id); };
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  buildImagery(f, f.S.planImagery(f.sky));
+  const from = f.api._timers.length;
+  f.S.removeImagery(f.sky, () => {});
+  runNewTimers(f.api, from);
+  assert.equal(f.S.findImagery(f.sky), null, "the imagery is gone");
+  assert.equal(f.api._comps.length, 1, "its source comp is gone");
+  assert.ok(deleted.length > 0);
+  assert.equal(deleted.filter((id) => String(id).indexOf("asset#") === 0).length, 0);
+});
+
+test("cancelling a rebuild part-way takes the new photo down a layer per step and leaves the old photo as it was", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const old = f.S.findImagery(f.sky);
+  const from = f.api._timers.length, results = [];
+  const job = f.S.beginImageryBuild(f.sky, f.S.planImagery(f.sky), () => {}, (r) => results.push(r), { budgetMs: 0 });
+  const timer = f.api._timers[from];
+  timer.callbacks.onTimeout();
+  timer.callbacks.onTimeout();
+  assert.equal(job.cancel(), true);
+  runNewTimers(f.api, from);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].cancelled, true);
+  assert.equal(imageryGroupsIn(f).length, 1, "only the old photo is left");
+  assert.equal(f.S.findImagery(f.sky).groupId, old.groupId);
+  assert.equal(f.api.get(old.groupId, "hidden"), false, "the old photo is not hidden");
+  assert.equal(f.api._comps.length, 2, "the old photo's source comp only");
+});
+
+function imageryGroupsIn(f) { return f.api.getChildren(f.sky.groupId).filter((id) => f.api.getNiceName(id) === IMG_GROUP); }
