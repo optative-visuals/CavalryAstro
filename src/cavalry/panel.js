@@ -1,8 +1,8 @@
 // The CavalryAstro panel. Ported from Cavalry Geo's panel.js (its Map tab and settings), keeping the sky features
 // only: the Sky tab (sky list, Create sky here, search, the preview, Jump / Fly / Drift, Style and Refresh controls),
-// the Stars tab (darkness, stars, the whole-sky ticks), the Reveal tab (pick constellations, reveal, change) and the
-// ⚙ settings. It runs when the script loads.
-var ASTRO_TABS = ["Sky", "Stars", "Reveal"];
+// the Stars tab (darkness, stars, the whole-sky ticks), the Reveal tab (pick constellations, reveal, change), the
+// Imagery tab (build the NASA photo, add its credit) and the ⚙ settings. It runs when the script loads.
+var ASTRO_TABS = ["Sky", "Stars", "Reveal", "Imagery"];
 var NEW_SKY = "New sky", WHOLE_SKY = "Whole sky";
 var DEFAULT_THEME = "Realistic";
 var SEARCH_LIMIT = 20, SEARCH_RETRY_MS = 1500;
@@ -962,6 +962,76 @@ var revealColumn = column([
   ])
 ]);
 
+// ---- The Imagery tab ---------------------------------------------------------------------------------------------
+// The NASA Deep Star Maps photo of the picked sky (AstroScene). Build asks once, with the tile count, then builds in
+// timer steps under a progress bar; Cancel stops it. Add attribution puts the credit on the sky.
+var imagerySource = new ui.DropDown();
+imagerySource.addEntry("NASA Deep Star Maps");
+// Says why imagery can't be built yet (the plugin or the pack, in AstroScene's words); hidden when nothing is missing.
+var imageryNote = AstroStyle.note("");
+var imageryBuildBtn = AstroStyle.primaryButton("Build imagery");
+var imageryCancelBtn = AstroStyle.button("Cancel");
+var imageryAttrBtn = AstroStyle.button("Add attribution");
+var imageryProgress = new ui.ProgressBar();
+var imageryJob = null; // the running build ({ cancel }), while one runs
+
+function refreshImageryNote() {
+  var missing = !AstroScene.reprojectAvailable() ? AstroScene.REPROJECT_MISSING
+    : !AstroScene.imageryPackAvailable().ok ? AstroScene.PACK_MISSING : "";
+  imageryNote.setText(missing);
+  if (typeof imageryNote.setHidden === "function") imageryNote.setHidden(!missing);
+}
+function onImageryProgress(p) {
+  imageryProgress.setMaximum(Math.max(1, p.total));
+  imageryProgress.setValue(p.built);
+  if (p.phase === "discard") say("Cancelling — removing the partly built imagery…");
+  else if (p.phase === "cleanup") say("Removing the old imagery…");
+  else say("Building imagery: " + p.built + " / " + p.total + " tiles…");
+}
+function onImageryDone(r) {
+  imageryJob = null;
+  refreshImageryNote();
+  if (r.cancelled) say("Cancelled — no imagery was built.");
+  else if (!r.ok) say("Error: " + r.error);
+  else say(r.message);
+}
+imageryBuildBtn.onClick = guardAction(function () {
+  if (imageryJob) throw new Error("Imagery is already being built — press Cancel to stop.");
+  var sky = currentSky();
+  if (!AstroScene.reprojectAvailable()) { refreshImageryNote(); say(AstroScene.REPROJECT_MISSING); return; }
+  if (!AstroScene.imageryPackAvailable().ok) { refreshImageryNote(); say(AstroScene.PACK_MISSING); return; }
+  var plan = AstroScene.planImagery(sky);
+  var question = "This needs " + plan.count + " imagery tiles for " + sky.name + "." + (plan.warn ? " " + plan.warn : "") + "\n\nBuild now?";
+  var dialog = questionDialog();
+  if (dialog && !dialog.showQuestion("Build imagery", question)) { say("Nothing was built."); return; }
+  imageryProgress.setValue(0);
+  imageryJob = AstroScene.beginImageryBuild(sky, plan, onImageryProgress, onImageryDone);
+  say("Building imagery…");
+});
+imageryCancelBtn.onClick = guardAction(function () {
+  if (!imageryJob) throw new Error("Nothing is being built.");
+  var stopped = imageryJob.cancel();
+  say(stopped ? "Cancelling — removing the partly built imagery…" : "The new imagery is already built — finishing removing the old imagery…");
+}, false, true);
+imageryAttrBtn.onClick = guardAction(function () {
+  var sky = currentSky();
+  AstroScene.addImageryCredit(sky);
+  say("Added the imagery credit to " + sky.name + ": " + AstroScene.IMAGERY_CREDIT + ".");
+});
+var imageryColumn = column([
+  AstroStyle.panel([
+    AstroStyle.heading("Source"),
+    imagerySource,
+    imageryNote
+  ]),
+  AstroStyle.panel([
+    AstroStyle.heading("Build"),
+    row(imageryBuildBtn, imageryCancelBtn),
+    imageryProgress,
+    imageryAttrBtn
+  ])
+]);
+
 // ---- Hover help: every control's tip comes from AstroTips (src/cavalry/tips.js) --------------------------------
 var TIP_TARGETS = [
   [cogBtn, "settings.cog"],
@@ -1013,7 +1083,12 @@ var TIP_TARGETS = [
   [revealStartField, "reveal.start"],
   [revealFramesField, "reveal.frames"],
   [revealBtn, "reveal.reveal"],
-  [changeRevealBtn, "reveal.change"]
+  [changeRevealBtn, "reveal.change"],
+  [imagerySource, "imagery.source"],
+  [imageryBuildBtn, "imagery.build"],
+  [imageryCancelBtn, "imagery.cancel"],
+  [imageryAttrBtn, "imagery.attribution"],
+  [imageryProgress, "imagery.progress"]
 ];
 TIP_TARGETS.forEach(function (t) { AstroStyle.tip(t[0], AstroTips.text(t[1])); });
 
@@ -1024,6 +1099,7 @@ function showTab(name) {
   if (i < 0) return;
   tabBar.select(name);
   tabPages.setPage(i);
+  if (name === "Imagery") guard(refreshImageryNote)();
 }
 
 // ---- Following the active composition -------------------------------------------------------------------
@@ -1076,7 +1152,7 @@ function buildUi() {
   tabPages = AstroStyle.pageStack(AstroStyle.PAGE_BACKGROUND);
   pageNames.forEach(function (name) {
     tabPages.add(name === "Sky" ? skyColumn : name === "Stars" ? starsColumn : name === "Reveal" ? revealColumn :
-      name === "Settings" ? settingsColumn : column([]));
+      name === "Imagery" ? imageryColumn : name === "Settings" ? settingsColumn : column([]));
   });
   tabPages.finish();
   tabBar = AstroStyle.tabBar(ASTRO_TABS, function (name) { showTab(name); });
@@ -1103,6 +1179,7 @@ function buildUi() {
   ui.onResize = fitPreview;
   fitPreview();
   guard(function () { syncCompSize(); refreshSkies(); })();
+  guard(refreshImageryNote)();
   followedComp = activeCompId();
   try { if (typeof ui.addCallbackObject === "function") ui.addCallbackObject(new CompFollower()); } catch (e) { /* an older Cavalry: the Refresh button still works */ }
   try { AstroUpdateCheck.run(say); } catch (e) { /* the update check never gets in the way */ }

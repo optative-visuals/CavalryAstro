@@ -1408,14 +1408,36 @@ var AstroScene = (function () {
     }, IMAGERY_STEP_MS, null, onDone || function () {});
   }
 
+  // The credit for the photo: one text layer "Imagery credit" in the sky's group, bottom-right, in the theme's names colour.
+  // Pressing it again keeps the one layer and sets its text again.
+  var IMAGERY_CREDIT_NAME = "Imagery credit", IMAGERY_CREDIT = "NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC";
+  var CREDIT_FONT_SIZE = 18, CREDIT_RIGHT = 230, CREDIT_UP = 40;
+  function addImageryCredit(s) {
+    var size = compSize(), id = null;
+    api.getChildren(s.groupId).forEach(function (k) { if (!id && api.getNiceName(k) === IMAGERY_CREDIT_NAME) id = k; });
+    if (!id) {
+      id = api.create(A.TEXT_LAYER_TYPE, IMAGERY_CREDIT_NAME);
+      api.parent(id, s.groupId);
+      setOne(id, "fontSize", CREDIT_FONT_SIZE);
+      api.set(id, { position: [size.width / 2 - CREDIT_RIGHT, -size.height / 2 + CREDIT_UP] });
+    }
+    setOne(id, A.TEXT_ATTR, IMAGERY_CREDIT);
+    applyStyle(id, { fill: themeOf(s).names });
+    return id;
+  }
+
   return {
     IMAGERY_TYPE: IMAGERY_TYPE,
+    IMAGERY_CREDIT: IMAGERY_CREDIT,
+    REPROJECT_MISSING: REPROJECT_MISSING,
+    PACK_MISSING: PACK_MISSING,
     reprojectAvailable: reprojectAvailable,
     imageryPackAvailable: imageryPackAvailable,
     planImagery: planImagery,
     beginImageryBuild: beginImageryBuild,
     findImagery: findImagery,
     removeImagery: removeImagery,
+    addImageryCredit: addImageryCredit,
     createSky: createSky,
     findSkies: findSkies,
     skyData: skyData,

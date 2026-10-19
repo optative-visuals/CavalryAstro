@@ -9,6 +9,7 @@
     "build": "node tools/build.js",
     "install-cavalry": "node tools/build.js && node tools/install.js",
     "sky-data": "node tools/build-sky-data.js",
-    "package": "node tools/package.js"
+    "package": "node tools/package.js",
+    "package-imagery": "node tools/package-imagery.js"
   }
 }
