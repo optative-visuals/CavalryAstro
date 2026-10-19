@@ -1209,6 +1209,22 @@ var AstroScene = (function () {
     } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
   }
 
+  // Puts id directly above other (in the same parent) by stepping id down the stack; the other layers keep their order.
+  // Does nothing when other is not below id's place (it can only step down).
+  function placeAbove(id, other) {
+    if (typeof api.moveBackward !== "function" || typeof api.select !== "function") return;
+    var parent = api.getParent(id), previous = [];
+    try { previous = api.getSelection(); } catch (e) { previous = []; }
+    try {
+      for (var n = 0; n < 1000; n++) {
+        var kids = api.getChildren(parent), i = kids.indexOf(id), o = kids.indexOf(other);
+        if (i < 0 || o < 0 || i >= o || i === o - 1) return;
+        api.select([id]);
+        api.moveBackward();
+      }
+    } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
+  }
+
   // The message the build reports when it is done.
   function doneMessage(built, missing) {
     var msg = "Imagery built: " + built + " tile" + (built === 1 ? "" : "s") + ".";
@@ -1322,7 +1338,11 @@ var AstroScene = (function () {
         });
       });
       setHidden(rec.groupId, keep.hidden);
-      stackImagery(s, rec.groupId);
+      // A first photo goes above the stars and below the lines, borders, names and reveals. A rebuild takes the old
+      // photo's place (directly above it), so the user's own order of the layers is not undone.
+      var replaced = previous.filter(function (im) { return layerThere(im.groupId); })[0];
+      if (replaced) placeAbove(rec.groupId, replaced.groupId);
+      else stackImagery(s, rec.groupId);
       refreshSpotlight(s);
       previous.forEach(function (im) {
         if (im.groupId === rec.groupId || !layerThere(im.groupId)) return;
@@ -1346,6 +1366,8 @@ var AstroScene = (function () {
       progress: function () { return { built: next, total: queue.length, phase: phase }; },
       result: function () {
         if (phase === "cancelled") return { ok: false, cancelled: true };
+        // The Controls are re-made on the new utilities (the rows' links follow the layers, as the other scene actions do).
+        syncControls(s);
         return { ok: true, groupId: rec.groupId, tiles: built, missing: missing, unreadable: unreadable, levels: levelOrder.length,
           message: doneMessage(built, missing) };
       },

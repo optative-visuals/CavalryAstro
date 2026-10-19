@@ -224,6 +224,16 @@ function addSceneApi(api) {
     bringToFront: () => {
       selection.forEach((id) => { const k = layers.indexOf(id); if (k >= 0) { layers.splice(k, 1); layers.push(id); } });
     },
+    // Cavalry's moveBackward acts on the selection: the layer goes one step down among its siblings.
+    moveBackward: () => {
+      selection.forEach((id) => {
+        const k = layers.indexOf(id);
+        if (k < 0) return;
+        let j = k - 1;
+        while (j >= 0 && parents[layers[j]] !== parents[id]) j--;
+        if (j >= 0) { layers.splice(k, 1); layers.splice(j, 0, id); }
+      });
+    },
     parent: (id, parentId) => { parents[id] = parentId; },
     getParent: (id) => parents[id] || "",
     getChildren: (parentId) => layers.filter((id) => parents[id] === parentId).reverse(),
@@ -1874,3 +1884,53 @@ test("cancelling a rebuild part-way takes the new photo down a layer per step an
 });
 
 function imageryGroupsIn(f) { return f.api.getChildren(f.sky.groupId).filter((id) => f.api.getNiceName(id) === IMG_GROUP); }
+
+// Moves a layer by hand, so it sits directly below another in the sky group (the user's own reorder).
+function placeBelow(f, id, otherId) {
+  const layers = f.api._layers;
+  layers.splice(layers.indexOf(id), 1);
+  layers.splice(layers.indexOf(otherId), 0, id);
+}
+// The sky group's children bottom-up, without the imagery groups (their ids change on a rebuild) and without the
+// Spotlight utility (the build rebuilds it, as it always has; it draws nothing).
+function bottomUpNoImagery(f) {
+  return f.api.getChildren(f.sky.groupId).slice().reverse()
+    .filter((id) => f.api.getNiceName(id) !== IMG_GROUP && f.api.getNiceName(id) !== "Spotlight");
+}
+
+test("a rebuild keeps the photo where the user put it: below the bands, and no other layer moves", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const band0 = f.S.skyLayers(f.sky).bands[0];
+  placeBelow(f, f.S.findImagery(f.sky).groupId, band0);
+  const others = bottomUpNoImagery(f);
+  buildImagery(f, f.S.planImagery(f.sky));
+  const now = f.S.findImagery(f.sky), bottomUp = f.api.getChildren(f.sky.groupId).slice().reverse();
+  assert.deepEqual(bottomUpNoImagery(f), others, "no other layer moved");
+  assert.equal(bottomUp.indexOf(now.groupId), bottomUp.indexOf(band0) - 1, "directly below the bands' first band");
+});
+
+test("with Reveal 2 placed below Reveal 1 by hand, a rebuild leaves the reveals in that order", () => {
+  const f = revealFixture();
+  const second = f.S.createReveal(f.sky, f.orion, ["lines"], 40, 20, {});
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  placeBelow(f, second.groupId, f.reveal.groupId);
+  buildImagery(f, f.S.planImagery(f.sky));
+  const bottomUp = f.api.getChildren(f.sky.groupId).slice().reverse();
+  assert.ok(bottomUp.indexOf(second.groupId) < bottomUp.indexOf(f.reveal.groupId), "Reveal 2 still below Reveal 1");
+});
+
+test("a build ends by syncing the Controls", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  const real = f.context.AstroControlPanel.sync;
+  let synced = 0;
+  f.context.AstroControlPanel.sync = (s) => { synced++; return real(s); };
+  buildImagery(f, plan);
+  assert.ok(synced >= 1, "the Controls were synced");
+});
