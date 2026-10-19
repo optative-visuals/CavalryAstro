@@ -75,6 +75,9 @@ function addSceneApi(api) {
   // The comp runs frames 0-100 at 25 fps. Setting endFrame moves frameRange's end, as Cavalry does.
   const store = { [COMP]: { frameRange: { x: 0, y: 100 }, endFrame: 100, playbackEnd: 100, fps: 25 } };
   const names = {}, parents = {}, layers = [], connections = [], keyframes = {}, userData = {}, paints = {}, outFrames = {};
+  // A component's promoted attributes: { src: "layer.attr", name, notes } in list order (Cavalry's promotedAttributes).
+  const promos = {};
+  const promoRef = (k) => /^promotedAttributes\.(\d+)\.(name|notes)$/.exec(String(k));
   let nextId = 1, selection = [], frame = 0;
   const ensure = (id) => store[id] || (store[id] = {});
   const layerType = (id) => String(id).split("#")[0];
@@ -114,11 +117,17 @@ function addSceneApi(api) {
     },
     renameAttribute: (id, attr, name) => { names[id + "." + attr] = name; },
     set: (id, obj) => {
-      Object.keys(obj).forEach((k) => { ensure(id)[k] = JSON.parse(JSON.stringify(obj[k])); });
+      Object.keys(obj).forEach((k) => {
+        const m = promoRef(k);
+        if (m && promos[id]) { promos[id][Number(m[1])][m[2]] = obj[k]; return; }
+        ensure(id)[k] = JSON.parse(JSON.stringify(obj[k]));
+      });
       if (id === COMP && obj.endFrame !== undefined) ensure(id).frameRange = { x: 0, y: obj.endFrame };
     },
     get: (id, attr) => {
       if (id === COMP && attr === "resolution") return { x: 1920, y: 1080 };
+      const pm = promoRef(attr);
+      if (pm && promos[id] && promos[id][Number(pm[1])]) return promos[id][Number(pm[1])][pm[2]];
       // A keyed attribute holds its last key at or before the playhead (the first key before any).
       const k = keyframes[id] && keyframes[id][attr];
       if (k && Object.keys(k).length) {
@@ -146,11 +155,21 @@ function addSceneApi(api) {
       return k ? Object.keys(k).map(Number).sort((a, b) => a - b) : [];
     },
     connect: (a, b, c, d) => {
+      // Like Cavalry: a component's promotions list appends each promoted attribute.
+      if (d === "promotedAttributes") { (promos[c] = promos[c] || []).push({ src: a + "." + b, name: "", notes: "" }); return; }
       // Like Cavalry: a layer's filters list appends each connection (filters.0, filters.1, ...).
       if (d === "filters") d = "filters." + connections.filter((k) => k[2] === c && /^filters\.\d+$/.test(k[3])).length;
       connections.push([a, b, c, d]);
     },
+    disconnect: (a, b, c, d) => {
+      for (let i = connections.length - 1; i >= 0; i--) {
+        const k = connections[i];
+        if (k[0] === a && k[1] === b && k[2] === c && k[3] === d) connections.splice(i, 1);
+      }
+    },
     getInConnection: (id, attr) => {
+      const pm = /^promotedAttributes\.(\d+)\.attribute$/.exec(attr);
+      if (pm) return promos[id] && promos[id][Number(pm[1])] ? promos[id][Number(pm[1])].src : "";
       for (let i = connections.length - 1; i >= 0; i--) {
         const k = connections[i];
         if (k[2] === id && k[3] === attr) return k[0] + "." + k[1];
@@ -169,6 +188,14 @@ function addSceneApi(api) {
       const m = SKY_FILE.exec(String(p));
       return m ? fs.readFileSync(path.join(ROOT, "assets", "sky", m[1] + ".json"), "utf8") : readFile(p);
     },
+    getInConnectedAttributes: (id) => (promos[id] || []).map((p, i) => "promotedAttributes." + i + ".attribute")
+      .concat(connections.filter((k) => k[2] === id).map((k) => k[3])),
+    removeArrayIndex: (id, path) => {
+      const m = /^promotedAttributes\.(\d+)$/.exec(path);
+      if (m && promos[id]) promos[id].splice(Number(m[1]), 1);
+    },
+    getCustomAttributeName: (id, attr) => names[id + "." + attr] || attr,
+    _promoted: (id) => (promos[id] || []).map((p) => p.src),
     _connections: connections,
     _store: store,
     _paints: paints
@@ -281,9 +308,12 @@ test("the sky stacks from the bottom: camera, background, borders, lines, glow, 
   assert.deepEqual(bottomUp, expected);
 });
 
-test("createSky selects the sky group", () => {
+test("createSky selects the \"<sky> Sky controls\" layer, not the group", () => {
   const { api, sky } = skyFixture();
-  assert.deepEqual(api.getSelection(), [sky.groupId]);
+  const comp = api.getCompLayers(false).find((id) => api.getNiceName(id) === "Sky 1 Sky controls");
+  assert.ok(comp, "the controls component");
+  assert.deepEqual(api.getSelection(), [comp]);
+  assert.notEqual(api.getSelection()[0], sky.groupId);
 });
 
 test("every layer that draws the sky takes its camera inputs from the Camera utility", () => {
@@ -615,3 +645,105 @@ test("changeReveal on a reveal without its amount throws and deletes nothing", (
   assert.throws(() => S.changeReveal(reveal.groupId, ["lines"], {}), /no amount utility/);
   assert.deepEqual(api.getChildren(reveal.groupId).slice(), kept, "its members are still there");
 });
+
+// ---- Controls (Task 10): the "<sky> Sky controls" and "<sky> Reveal controls" components ------------------
+const SKY_CONTROL_ROWS = [
+  "Camera · Centre RA", "Camera · Centre Dec", "Camera · Field of view", "Camera · Rotation",
+  "Stars · Sky darkness (0 City – 100 Countryside)", "Stars · Size", "Stars · Glow",
+  "Background · Colour",
+  "Lines · Hide", "Lines · Colour", "Lines · Width",
+  "Borders · Hide", "Borders · Colour", "Borders · Width",
+  "Names · Hide", "Names · Colour", "Names · Size"
+];
+// The promoted rows' labels, in list order (a row's label is the name its source attribute carries). Inputs of a
+// script (array.N) keep non-breaking spaces, as Cavalry needs them; the labels are compared with plain spaces.
+function promotedLabels(api, comp) {
+  return api._promoted(comp).map((s) => {
+    const d = s.indexOf(".");
+    return api.getCustomAttributeName(s.slice(0, d), s.slice(d + 1)).split(" ").join(" ");
+  });
+}
+function compNamed(api, name) { return api.getCompLayers(false).find((id) => api.getNiceName(id) === name); }
+
+test("createSky makes \"<sky> Sky controls\" holding the sky's rows, at the top level above the sky group", () => {
+  const { api, sky } = skyFixture();
+  const comp = compNamed(api, "Sky 1 Sky controls");
+  assert.equal(api.getLayerType(comp), "component");
+  assert.equal(api.getParent(comp), "", "a top-level layer, not inside the sky");
+  assert.deepEqual(promotedLabels(api, comp), SKY_CONTROL_ROWS);
+  assert.equal(compNamed(api, "Sky 1 Reveal controls"), undefined, "no reveal rows without a reveal");
+  assert.equal(api.getChildren(sky.groupId).indexOf(comp), -1);
+});
+
+test("the Stars · Sky darkness input drives every band and the glow, and lives in the Sky controls", () => {
+  const { api, layers } = skyFixture();
+  const comp = compNamed(api, "Sky 1 Sky controls");
+  const sources = layers.bands.concat([layers.glow]).map((id) => api.getInConnection(id, "generator.array.7"));
+  assert.ok(sources.every((s) => s === sources[0] && s !== ""), "one input for all of them");
+  assert.equal(api.getParent(sources[0].slice(0, sources[0].indexOf("."))), comp, "the input is in the Sky controls' values utility");
+});
+
+test("the Stars · Size input drives the bands and the glow too", () => {
+  const { api, layers } = skyFixture();
+  const sources = layers.bands.concat([layers.glow]).map((id) => api.getInConnection(id, "generator.array.8"));
+  assert.ok(sources.every((s) => s === sources[0] && s !== ""));
+});
+
+test("a reveal gets \"<sky> Reveal controls\" with its rows; deleting it and syncing removes them, the Sky rows stay", () => {
+  const { api, S, sky, context } = revealFixture();
+  const reveals = compNamed(api, "Sky 1 Reveal controls");
+  assert.ok(reveals, "the reveal controls");
+  assert.deepEqual(promotedLabels(api, reveals).slice(0, 2), ["Reveal 1 · Amount %", "Reveal 1 · Spotlight"]);
+  assert.ok(promotedLabels(api, reveals).includes("Reveal 1 · Title size"));
+  assert.ok(promotedLabels(api, reveals).includes("Reveal 1 · Labels size"));
+  api.deleteLayer(S.findReveals(sky)[0].groupId);
+  S.prepareReveals(sky);
+  syncNow(context, sky);
+  assert.equal(compNamed(api, "Sky 1 Reveal controls"), undefined, "nothing wanted: the component is removed");
+  assert.deepEqual(promotedLabels(api, compNamed(api, "Sky 1 Sky controls")), SKY_CONTROL_ROWS);
+});
+
+test("with two reveals the Reveal controls hold both blocks, Reveal 1 then Reveal 2", () => {
+  const { api, S, sky, orion, context } = revealFixture();
+  S.createReveal(sky, orion, ["lines"], 50, 25, {});
+  syncNow(context, sky);
+  const labels = promotedLabels(api, compNamed(api, "Sky 1 Reveal controls"));
+  const at1 = labels.indexOf("Reveal 1 · Amount %"), at2 = labels.indexOf("Reveal 2 · Amount %");
+  assert.ok(at1 >= 0 && at2 > at1, "Reveal 1's block, then Reveal 2's");
+  assert.ok(labels.indexOf("Reveal 2 · Lines colour") > at2, "Reveal 2 has lines");
+  assert.equal(labels.indexOf("Reveal 2 · Title size"), -1, "Reveal 2 has no title");
+});
+
+test("a row the user promoted stays after the plugin's rows, through a later sync", () => {
+  const { api, sky, layers, context } = skyFixture();
+  const comp = compNamed(api, "Sky 1 Sky controls");
+  api.connect(layers.background, "hidden", comp, "promotedAttributes");
+  syncNow(context, sky);
+  const all = api._promoted(comp);
+  assert.equal(all[all.length - 1], layers.background + ".hidden", "the user's row is last");
+  assert.deepEqual(promotedLabels(api, comp).slice(0, SKY_CONTROL_ROWS.length), SKY_CONTROL_ROWS);
+});
+
+test("Disconnect is respected: a glow the user disconnects from the darkness input is not relinked by a sync", () => {
+  const { api, sky, layers, context } = skyFixture();
+  const source = api.getInConnection(layers.glow, "generator.array.7");
+  const at = source.indexOf(".");
+  api.disconnect(source.slice(0, at), source.slice(at + 1), layers.glow, "generator.array.7");
+  syncNow(context, sky);
+  assert.equal(api.getInConnection(layers.glow, "generator.array.7"), "", "the glow is not relinked");
+  assert.notEqual(api.getInConnection(layers.bands[0], "generator.array.7"), "", "the bands still follow");
+});
+
+test("syncing again changes nothing", () => {
+  const { api, sky, context } = revealFixture();
+  const comp = compNamed(api, "Sky 1 Sky controls");
+  const promoted = api._promoted(comp).slice(), links = api._connections.length;
+  syncNow(context, sky);
+  assert.deepEqual(api._promoted(comp), promoted);
+  assert.equal(api._connections.length, links, "no connections added");
+});
+
+// Runs the Controls panel's sync, as the scene does after each action.
+function syncNow(context, sky) {
+  return context.AstroControlPanel.sync(sky);
+}

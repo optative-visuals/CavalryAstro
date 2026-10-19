@@ -28,6 +28,12 @@ var AstroScene = (function () {
   }
   function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
 
+  // Brings a sky's Controls up to date after a scene action (the panel script may load after this one: a missing panel is skipped).
+  // Returns the panel's result, or null.
+  function syncControls(s) {
+    return typeof AstroControlPanel === "undefined" ? null : AstroControlPanel.sync(s);
+  }
+
   // The catalogue, decoded on first use. Throws a plain message when the sky data is not in the assets folder.
   function skyData() {
     if (sky) return sky;
@@ -221,8 +227,10 @@ var AstroScene = (function () {
     var names = skyShape(groupId, cameraId, NAMES.names, "texts", namesData(data.cons, theme.nameCase), { category: "names" }, c);
     applyStyle(names, { fill: theme.names });
     setOne(names, "hidden", true);
-    if (typeof api.select === "function") api.select(groupId);
-    return { groupId: groupId, cameraId: cameraId, name: name };
+    var made = { groupId: groupId, cameraId: cameraId, name: name }, ctl = syncControls(made);
+    // The sky's Controls are what the user works in, so they are selected rather than the group.
+    if (typeof api.select === "function") api.select(ctl && ctl.componentId ? ctl.componentId : groupId);
+    return made;
   }
 
   // The layers of a sky by part: background, bands (in band order), glow, lines, borders, names (ids or null).
@@ -586,6 +594,23 @@ var AstroScene = (function () {
     return out.sort(function (a, b) { return a.number - b.number; });
   }
 
+  // The members of a reveal, by part (ids, or null when the part is not drawn), and the constellation's name.
+  // The Controls read these: the border and its glow are the two rings the Border colour drives.
+  function revealMembers(r) {
+    var out = { constellation: "", lines: null, border: null, borderGlow: null, labels: null, title: null };
+    var rec = revealRecord(r.groupId);
+    if (rec) out.constellation = rec.name;
+    api.getChildren(r.groupId).forEach(function (k) {
+      var m = metaOf(k);
+      if (m && m.category === "revealLines") out.lines = k;
+      else if (m && m.category === "revealBorder") out.border = k;
+      else if (m && m.category === "revealBorderGlow") out.borderGlow = k;
+      else if (m && m.category === "revealLabels") out.labels = k;
+      else if (api.getNiceName(k) === "Title") out.title = k;
+    });
+    return out;
+  }
+
   function highestNumber(s) {
     return findReveals(s).reduce(function (m, r) { return Math.max(m, r.number); }, 0);
   }
@@ -716,6 +741,7 @@ var AstroScene = (function () {
     buildMembers(s, groupId, c, chosen, amountId);
     register(s, groupId);
     refreshSpotlight(s);
+    syncControls(s);
     return { groupId: groupId, number: number };
   }
 
@@ -735,6 +761,7 @@ var AstroScene = (function () {
     rec.parts = chosen;
     setRecord(groupId, rec);
     refreshSpotlight(s);
+    syncControls(s);
     return { groupId: groupId, number: rec.number };
   }
 
@@ -789,6 +816,7 @@ var AstroScene = (function () {
     api.setUserData(s.groupId, REVEALS_KEY, kept);
     renumber(findReveals(s));
     refreshSpotlight(s);
+    syncControls(s);
     return removed;
   }
 
@@ -817,6 +845,7 @@ var AstroScene = (function () {
     REVEAL_PARTS: REVEAL_PARTS,
     createReveal: createReveal,
     findReveals: findReveals,
+    revealMembers: revealMembers,
     changeReveal: changeReveal,
     refreshSpotlight: refreshSpotlight,
     prepareReveals: prepareReveals
