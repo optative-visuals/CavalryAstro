@@ -642,6 +642,39 @@ test("the reveal star layers ignore the darkness limit", () => {
   assert.ok(String(api.get(star, "generator.expression")).indexOf("ignoreLimit: true") >= 0);
 });
 
+// The reveal's star layers (its bands and its glow), by name.
+function revealStarsOf(api, groupId) { return api.getChildren(groupId).filter((id) => /^Reveal stars/.test(api.getNiceName(id))); }
+
+test("the reveal stars take the sky's star size: setStarSize(sky, 2) gives them effective size 2, and the reveal glow 6", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  S.setStarSize(sky, 2);
+  const stars = revealStarsOf(api, reveal.groupId);
+  assert.ok(stars.length > 0);
+  stars.forEach((id) => assert.equal(effectiveSize(api, id), 2, api.getNiceName(id)));
+  assert.equal(effectiveSize(api, childNamed(api, reveal.groupId, "Reveal star glow")), 6);
+});
+
+test("the reveal stars' opacity is connected to the border stage, so they appear with the reveal", () => {
+  const { api, reveal } = revealFixture();
+  revealStarsOf(api, reveal.groupId).forEach((id) => {
+    const from = String(api.getInConnection(id, "opacity"));
+    assert.ok(from.length > 0, api.getNiceName(id) + " has an opacity connection");
+    assert.equal(api.getNiceName(from.split(".")[0]), "Reveal border opacity", api.getNiceName(id));
+  });
+});
+
+test("the reveal star glow is a copy of the constellation's stars brighter than magnitude 2.5, at 3 times the size and blurred", () => {
+  const { api, reveal } = revealFixture();
+  const glow = childNamed(api, reveal.groupId, "Reveal star glow");
+  assert.ok(glow, "Reveal star glow exists");
+  const expr = String(api.get(glow, "generator.expression"));
+  assert.ok(expr.indexOf("sizeScale: 3") >= 0);
+  assert.ok(expr.indexOf("ignoreLimit: true") >= 0);
+  const data = embeddedData(api, glow);
+  assert.ok(data.mag.length > 0 && data.mag.every((m) => m < 2.5), "only stars under magnitude 2.5");
+  assert.ok(api.getChildren(reveal.groupId).some((id) => api.getLayerType(id) === "blurFilter"), "a blur copy");
+});
+
 test("a second reveal of Orion is Reveal 2: Orion", () => {
   const { S, sky, orion } = revealFixture();
   const second = S.createReveal(sky, orion, ["lines"], 50, 25, {});

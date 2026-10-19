@@ -334,9 +334,33 @@ var AstroScene = (function () {
     });
   }
 
-  // Sets one star input on every star layer (bands and glow); valueOf(id) gives each layer's value.
-  function setStarInput(s, name, valueOf) {
-    var L = skyLayers(s), ids = L.bands.concat(L.glow ? [L.glow] : []), idx = E.inputIndex(E.STAR_INPUTS, name);
+  // The reveal star layers of every reveal in the sky (their stars and their glow).
+  function revealStarLayers(s) {
+    var out = [];
+    findReveals(s).forEach(function (r) {
+      api.getChildren(r.groupId).forEach(function (k) {
+        var m = metaOf(k);
+        if (m && (m.category === "revealStars" || m.category === "revealGlow")) out.push(k);
+      });
+    });
+    return out;
+  }
+
+  // Where the sky's star size comes from: the input a star layer reads it through ({id, attr}), or null when it is set
+  // directly on the layers. A driver output is not a value, so it does not count.
+  function starSizeSource(s) {
+    var L = skyLayers(s), star = L.bands[0] || L.glow;
+    if (!star) return null;
+    var from = "";
+    try { from = String(api.getInConnection(star, A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, "size")) || ""); } catch (e) { from = ""; }
+    var at = from.indexOf(".");
+    if (at < 0 || from.slice(at + 1) === A.DRIVER_OUTPUT_ATTR) return null;
+    return { id: from.slice(0, at), attr: from.slice(at + 1) };
+  }
+
+  // Sets one star input on every star layer (bands and glow, and any extra ids); valueOf(id) gives each layer's value.
+  function setStarInput(s, name, valueOf, extra) {
+    var L = skyLayers(s), ids = L.bands.concat(L.glow ? [L.glow] : []).concat(extra || []), idx = E.inputIndex(E.STAR_INPUTS, name);
     ids.forEach(function (id) { writeInput(id, A.SHAPE_ARRAY_ATTR + "." + idx, valueOf(id)); });
   }
 
@@ -348,7 +372,7 @@ var AstroScene = (function () {
   // The bands and the glow share one size input. The glow draws at GLOW_SIZE times it (its layer's sizeScale).
   function setStarSize(s, value) {
     var v = numberOr(value, 1);
-    setStarInput(s, "size", function () { return v; });
+    setStarInput(s, "size", function () { return v; }, revealStarLayers(s));
   }
 
   // True colours (on) or the theme's one star colour (off), kept in the sky's theme.
@@ -718,6 +742,8 @@ var AstroScene = (function () {
       api.connect(amountId, A.CAMERA_ARRAY_ATTR + ".0", id, A.CAMERA_ARRAY_ATTR + ".0", true);
       return id;
     }
+    // The border stage also fades the reveal's stars in, so it is always made.
+    var borderId = stage("border");
     if (parts.indexOf("lines") >= 0) {
       var drawId = stage("lines");
       var lines = skyShape(groupId, s.cameraId, "Reveal lines", "lines", { lines: c.lines || [] }, { category: "revealLines" }, cam);
@@ -725,7 +751,6 @@ var AstroScene = (function () {
       feedInput(drawId, A.DRIVER_OUTPUT_ATTR, lines, A.SHAPE_ARRAY_ATTR, E.LINE_INPUTS, "draw");
     }
     if (parts.indexOf("border") >= 0) {
-      var borderId = stage("border");
       ["Reveal border", "Reveal border glow"].forEach(function (name, k) {
         var ring = skyShape(groupId, s.cameraId, name, "border", { rings: c.border || [] }, { category: k ? "revealBorderGlow" : "revealBorder" }, cam);
         applyStyle(ring, { stroke: theme.revealBorder, width: theme.revealBorderWidth });
@@ -733,19 +758,37 @@ var AstroScene = (function () {
         if (k) blurLayer(groupId, ring, name + " blur", REVEAL_GLOW_BLUR);
       });
     }
-    // One layer per colour band the constellation's stars fall in. They ignore the darkness limit, so lines always join stars.
-    var bands = [];
+    // The reveal's stars: one layer per colour band the constellation's stars fall in, and a glow copy of its stars
+    // brighter than GLOW_MAG (3 times the size, blurred, as the sky's glow). They ignore the darkness limit, so lines always
+    // join stars. Their size is the sky's star size (the source its stars read, else the value now), and they fade in with
+    // the border stage. The spotlight does not dim them.
+    var bands = [], glowRows = { ra: [], dec: [], mag: [] };
     for (var b = 0; b < AstroStars.BANDS.length; b++) bands.push({ ra: [], dec: [], mag: [] });
     (c.stars || []).forEach(function (row) {
       var g = bands[AstroStars.bandOf(data.stars.bv[row])];
       g.ra.push(data.stars.ra[row]); g.dec.push(data.stars.dec[row]); g.mag.push(data.stars.mag[row]);
+      if (data.stars.mag[row] < GLOW_MAG) {
+        glowRows.ra.push(data.stars.ra[row]); glowRows.dec.push(data.stars.dec[row]); glowRows.mag.push(data.stars.mag[row]);
+      }
     });
+    var sizeFrom = starSizeSource(s), sizeAttr = A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, "size"), sizeNow = readStars(s).size;
+    function revealStarLayer(name, rows, meta, opts, fill) {
+      var layer = skyShape(groupId, s.cameraId, name, "stars", rows, meta, cam, null, opts);
+      applyStyle(layer, { fill: fill });
+      if (sizeFrom) api.connect(sizeFrom.id, sizeFrom.attr, layer, sizeAttr, true);
+      else setOne(layer, sizeAttr, sizeNow);
+      api.connect(borderId, A.DRIVER_OUTPUT_ATTR, layer, "opacity", true);
+      return layer;
+    }
     bands.forEach(function (g, band) {
       if (!g.ra.length) return;
-      var layer = skyShape(groupId, s.cameraId, "Reveal stars · band " + band, "stars", g, { category: "revealStars", band: band },
-        cam, null, { ignoreLimit: true });
-      applyStyle(layer, { fill: colours[band] });
+      revealStarLayer("Reveal stars · band " + band, g, { category: "revealStars", band: band }, { ignoreLimit: true }, colours[band]);
     });
+    if (glowRows.ra.length) {
+      var glow = revealStarLayer("Reveal star glow", glowRows, { category: "revealGlow" }, { ignoreLimit: true, sizeScale: GLOW_SIZE },
+        AstroStyles.previewColors(theme).star);
+      blurLayer(groupId, glow, "Reveal star glow blur", GLOW_BLUR);
+    }
     if (parts.indexOf("labels") >= 0) {
       var labelId = stage("labels");
       var items = [];
