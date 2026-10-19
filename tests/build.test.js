@@ -1333,6 +1333,11 @@ test("the Reveal list holds all 88 constellations, alphabetical, when Find is em
   assert.equal(names.length, context.AstroScene.skyData().cons.length);
 });
 
+test("the Reveal list is 210 high, about eight rows, and scrolls the rest", () => {
+  const { ui } = runPanel();
+  assert.deepEqual(widgetsOfKind(ui, "List")[0]._setFixedHeight, [210]);
+});
+
 test("picking the flown-to constellation after Fly here to Orion over 0 to 100 opens Start 60 and Frames 40", () => {
   const { api, ui, context } = runPanel();
   pickNewSky(ui);

@@ -816,6 +816,8 @@ var starsColumn = column([
 var revealFind = new ui.LineEdit(); revealFind.setPlaceholder("Find a constellation, e.g. Orion");
 var revealFindBtn = AstroStyle.button("Find");
 var revealList = new ui.List();
+var LIST_HEIGHT = 210; // about eight rows; the rest scroll
+if (typeof revealList.setFixedHeight === "function") revealList.setFixedHeight(LIST_HEIGHT);
 revealList.setSelectionMode("extended");
 var revealRows = [];   // the listed constellations, in list order: { index, name }
 var lastRevealFind = null;
