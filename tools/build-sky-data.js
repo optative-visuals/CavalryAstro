@@ -66,16 +66,6 @@ function greekBayer(s) {
   return g ? g[1] + (m[2] || "") : "";
 }
 
-// Shoelace area of a ring of [ra, dec] points (planar, on unwrapped RA).
-function ringArea(ring) {
-  let a = 0;
-  for (let i = 0; i < ring.length; i++) {
-    const p = ring[i], q = ring[(i + 1) % ring.length];
-    a += p[0] * q[1] - q[0] * p[1];
-  }
-  return Math.abs(a) / 2;
-}
-
 // Unwraps RA so consecutive points take the short way round, then closes the ring.
 function unwrapRing(ring) {
   const out = [ring[0].slice()];
@@ -161,19 +151,16 @@ function buildConstellations(d3) {
     for (const lf of lines.filter((f) => f.id === id)) {
       for (const line of lf.geometry.coordinates) lineCoords.push(line.map(([lon, lat]) => [wrapRa(lon), lat]));
     }
-    // Borders: one closed Polygon per id in constellations.bounds.json. For Serpens, keep the larger part.
-    let ring = null, best = -1;
-    for (const bf of bounds.filter((f) => f.id === id)) {
+    // Borders: one closed Polygon per feature in constellations.bounds.json. Serpens has two (Caput, Cauda),
+    // so every constellation's border is a list of rings, each densified.
+    const border = bounds.filter((f) => f.id === id).map((bf) => {
       const pts = bf.geometry.coordinates[0].map(([lon, lat]) => [wrapRa(lon), lat]);
       if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
-      const unwrapped = unwrapRing(pts);
-      const area = ringArea(unwrapped);
-      if (area > best) { best = area; ring = unwrapped; }
-    }
-    const border = densify(ring).map(([ra, dec]) => [round(((ra % 360) + 360) % 360, 4) % 360, round(dec, 4)]);
+      return densify(unwrapRing(pts)).map(([ra, dec]) => [round(((ra % 360) + 360) % 360, 4) % 360, round(dec, 4)]);
+    });
     const centre = p.display
       ? [round(wrapRa(p.display[0]), 4), round(p.display[1], 4)]
-      : sphericalMean(border);
+      : sphericalMean(border[0]);
     return { id, name: p.en, latin: p.la, genitive: p.gen, centre, lineCoords, border, parts: feats.length };
   });
 }
@@ -237,8 +224,8 @@ function main() {
     const serpens = cons.find((c) => c.id === "Ser");
     console.log("Stars kept (mag <= " + MAG_LIMIT + "): " + stars.length + ", unknown Bayer labels: " + unknownBayer +
       ", stars without B-V (set to 0.6): " + noCi);
-    console.log("Constellations: " + cons.length + ". Serpens features merged: " + serpens.parts +
-      " (border = larger part)");
+    console.log("Constellations: " + cons.length + ". Serpens border rings: " + serpens.border.length +
+      " (Caput and Cauda)");
     console.log("Line vertices snapped: " + snapped + ", unsnapped: " + unsnapped.length +
       (unsnapped.length ? " " + unsnapped.join("; ") : ""));
     console.log("Wrote " + path.join(OUT_DIR, "stars.json") + " (" + starsJson.length + " bytes)");

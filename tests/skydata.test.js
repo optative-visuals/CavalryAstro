@@ -45,12 +45,19 @@ test("there are 88 constellations, sorted by id with unique ids", () => {
   assert.equal(new Set(ids).size, 88);
 });
 
-test("every constellation has lines, a border of at least 4 points and stars", () => {
+test("every constellation has lines, border rings of at least 4 points and stars", () => {
   for (const c of list) {
     assert.ok(c.lines.length >= 1, c.id + " has a line");
-    assert.ok(c.border.length >= 4, c.id + " has a border");
+    assert.ok(c.border.length >= 1, c.id + " has a border");
+    for (const ring of c.border) assert.ok(ring.length >= 4, c.id + " has a ring of at least 4 points");
     assert.ok(c.stars.length >= 1, c.id + " has stars");
   }
+});
+
+test("Serpens has exactly 2 border rings (Caput and Cauda), every other constellation has 1", () => {
+  const ser = list.find((c) => c.id === "Ser");
+  assert.equal(ser.border.length, 2);
+  for (const c of list) if (c.id !== "Ser") assert.equal(c.border.length, 1, c.id);
 });
 
 test("every line vertex is an exact bundled star position", () => {
@@ -78,13 +85,14 @@ test("star count is between 12000 and 20000", () => {
   assert.ok(starsJson.rows.length >= 12000 && starsJson.rows.length <= 20000, String(starsJson.rows.length));
 });
 
-test("consecutive border points are at most 1.01 degrees apart, including the closing edge", () => {
+test("consecutive border points are at most 1.01 degrees apart, including the closing edge of each ring", () => {
   for (const c of list) {
-    const b = c.border;
-    for (let i = 0; i < b.length; i++) {
-      const j = (i + 1) % b.length;
-      const d = sepDeg(b[i][0], b[i][1], b[j][0], b[j][1]);
-      assert.ok(d <= 1.01, c.id + " border gap " + d.toFixed(3) + " at " + i);
+    for (const b of c.border) {
+      for (let i = 0; i < b.length; i++) {
+        const j = (i + 1) % b.length;
+        const d = sepDeg(b[i][0], b[i][1], b[j][0], b[j][1]);
+        assert.ok(d <= 1.01, c.id + " border gap " + d.toFixed(3) + " at " + i);
+      }
     }
   }
 });

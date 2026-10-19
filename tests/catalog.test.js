@@ -68,3 +68,7 @@ test("constellationAt finds the constellation under a point, including the RA wr
   assert.equal(C.constellationAt(cons, 123.0, 89.5), C.findConstellation(cons, "UMi"));
   assert.equal(C.constellationAt(cons, 200.0, -89.5), C.findConstellation(cons, "Oct"));
 });
+
+test("constellationAt finds Serpens Cauda, the second border ring of Serpens", () => {
+  assert.equal(C.constellationAt(cons, 275.0, -5.0), C.findConstellation(cons, "Ser"));
+});

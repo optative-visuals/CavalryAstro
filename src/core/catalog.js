@@ -103,14 +103,19 @@ var AstroCatalog = (function () {
       2 * (x[0] * na[0] + x[1] * na[1] + x[2] * na[2]) / dp];
   }
 
-  function projectedBorder(c) {
+  // The constellation's border rings, projected about its centre (cached on the object).
+  function projectedRings(c) {
     if (!c._projected) {
-      var ring = [];
-      for (var i = 0; i < c.border.length; i++) {
-        var p = project(c.centre, c.border[i][0], c.border[i][1]);
-        if (p) ring.push(p);
+      var rings = [];
+      for (var r = 0; r < c.border.length; r++) {
+        var ring = [];
+        for (var i = 0; i < c.border[r].length; i++) {
+          var p = project(c.centre, c.border[r][i][0], c.border[r][i][1]);
+          if (p) ring.push(p);
+        }
+        rings.push(ring);
       }
-      c._projected = ring;
+      c._projected = rings;
     }
     return c._projected;
   }
@@ -124,11 +129,13 @@ var AstroCatalog = (function () {
     return inside;
   }
 
+  // Index of the constellation whose border (any of its rings) contains the point, or -1.
   function constellationAt(cons, ra, dec) {
     for (var i = 0; i < cons.length; i++) {
       var p = project(cons[i].centre, ra, dec);
       if (!p) continue;
-      if (inRing(projectedBorder(cons[i]), p[0], p[1])) return i;
+      var rings = projectedRings(cons[i]);
+      for (var r = 0; r < rings.length; r++) if (inRing(rings[r], p[0], p[1])) return i;
     }
     return -1;
   }
