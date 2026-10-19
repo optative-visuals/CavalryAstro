@@ -16,7 +16,7 @@ var AstroPreview = (function () {
   var COS_FLOOR = 1e-3;
   // A middle-drag doubles or halves the fov every ZOOM_DRAG_PX pixels.
   var ZOOM_DRAG_PX = 100;
-  var PREVIEW_MAG = 5;
+  var PREVIEW_MAG = 4.5;
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -154,7 +154,7 @@ var AstroPreview = (function () {
       [rect.x, rect.y + rect.h], [rect.x, rect.y]], dash, gap);
   }
 
-  // The stars the preview draws: those at or brighter than maxMag (default 5), in typed arrays.
+  // The stars the preview draws: those at or brighter than maxMag (default 4.5), in typed arrays.
   function starsForPreview(stars, maxMag) {
     var lim = maxMag === undefined ? PREVIEW_MAG : maxMag, keep = [];
     for (var i = 0; i < stars.count; i++) if (stars.mag[i] <= lim) keep.push(i);

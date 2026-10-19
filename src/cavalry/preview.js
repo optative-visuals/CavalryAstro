@@ -10,8 +10,10 @@ var AstroPreviewPanel = (function () {
   var CAMERA = "#e6e6e6", PILL = "#000000a6", GLYPH = "#e6e6e6";
   var MIN_WIDTH = 120; // the narrowest the Draw can be
   var TICK_MS = 40, DOT_HIT = 6, DOT_RADIUS = 3, CLICK_PX = 4, ZOOM_STEP = 1.5;
-  // Stars: radius from AstroStars at this limit and size. Fainter than the minimum radius is still a dot.
-  var STAR_LIMIT = 7, STAR_SIZE = 0.7, STAR_MIN_RADIUS = 0.6;
+  // Stars: the canvas's radius for a 1-px-per-comp-pixel star, scaled to the green frame's width in the preview,
+  // so the sky reads as a miniature of the canvas. PREVIEW_STAR_BOOST makes them a little easier to see.
+  var STAR_LIMIT = 7, PREVIEW_STAR_BOOST = 2.5, STAR_MIN_RADIUS = 0.5, STAR_MAX_RADIUS = 3.5;
+  var LINE_WIDTH = 0.75;
   // Constellation names show once the view is narrower than this many degrees.
   var NAME_FOV = 90;
   // The comp's size until the panel is told otherwise: the preview is shaped like it.
@@ -60,12 +62,19 @@ var AstroPreviewPanel = (function () {
       return x < 0 || x > state.w || y < 0 || y > state.h ? null : [x, y];
     }
 
+    // The preview's pixels per comp pixel: the green frame's width over the comp's width, boosted.
+    function starScale() {
+      var f = AstroPreview.frameRect(state.w, state.h, state.comp.w / state.comp.h);
+      return f.w / state.comp.w * PREVIEW_STAR_BOOST;
+    }
+
     function drawStars(proj, out) {
-      var s = state.sky.stars, path = new cavalry.Path(), n = 0;
+      var s = state.sky.stars, path = new cavalry.Path(), n = 0, scale = starScale();
       for (var i = 0; i < s.count; i++) {
         var q = onView(proj, s.ra[i], s.dec[i], out);
         if (!q) continue;
-        var r = Math.max(STAR_MIN_RADIUS, AstroStars.radius(s.mag[i], STAR_LIMIT, STAR_SIZE));
+        var r = AstroStars.radius(s.mag[i], STAR_LIMIT, 1) * scale;
+        r = Math.max(STAR_MIN_RADIUS, Math.min(STAR_MAX_RADIUS, r));
         path.addEllipse(q[0], Y(q[1]), r, r);
         n++;
       }
@@ -86,7 +95,7 @@ var AstroPreviewPanel = (function () {
           });
         });
       });
-      draw.addPath(path.toObject(), { color: state.colours.lines, stroke: true, strokeWidth: 1 });
+      draw.addPath(path.toObject(), { color: state.colours.lines, stroke: true, strokeWidth: LINE_WIDTH });
       state.stats.lines = points;
     }
 

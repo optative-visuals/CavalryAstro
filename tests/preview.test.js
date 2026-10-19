@@ -177,12 +177,12 @@ test("hitConstellation at the centre of Cassiopeia's border is Cassiopeia, and a
   assert.notEqual(P.hitConstellation(v, CONS, W / 2, 0, W, H), i);
 });
 
-test("starsForPreview keeps the stars at or brighter than magnitude 5 and no others", () => {
+test("starsForPreview keeps the stars at or brighter than magnitude 4.5 and no others", () => {
   const data = P.starsForPreview(STARS);
   let expected = 0;
-  for (let i = 0; i < STARS.count; i++) if (STARS.mag[i] <= 5) expected++;
+  for (let i = 0; i < STARS.count; i++) if (STARS.mag[i] <= 4.5) expected++;
   assert.equal(data.count, expected);
-  for (let i = 0; i < data.count; i++) assert.ok(data.mag[i] <= 5);
+  for (let i = 0; i < data.count; i++) assert.ok(data.mag[i] <= 4.5);
   assert.equal(P.starsForPreview(STARS, 2).count < data.count, true, "a lower limit keeps fewer");
 });
 
@@ -313,4 +313,51 @@ test("viewFovFor is the inverse of frameCamera: the green frame's camera has the
     const view = { ra: 10, dec: 5, fov: P.viewFovFor(f) };
     assert.ok(Math.abs(P.frameCamera(view).fov - f) < 0.01, "camera fov " + f);
   }
+});
+
+// A sky of stars given as [mag, ra, dec] triples, for the panel's star drawing.
+function skyOf(list) {
+  return { count: list.length, ra: list.map((s) => s[1]), dec: list.map((s) => s[2]), mag: list.map((s) => s[0]), bv: list.map(() => 0.6) };
+}
+
+test("a magnitude -1.5 star is drawn at the frame's scale: 10 px at 1920 wide, times frame over comp times 2.5, in [0.5, 3.5]", () => {
+  const ctx = panelContext();
+  const panel = ctx.AstroPreviewPanel.create({});
+  panel.setSky({ stars: skyOf([[-1.5, 84, 0]]), constellations: [], theme: "Realistic" });
+  panel.setCompSize(1920, 1080);
+  panel.setWidth(320);
+  panel.redraw();
+  const draw = panel.widget._items[1];
+  const frameW = P.frameRect(320, 180, 1920 / 1080).w;
+  const want = Math.min(3.5, Math.max(0.5, 10 * (frameW / 1920) * 2.5));
+  assert.ok(want > 0.5 && want < 3.5, "the test width is not clamped: " + want);
+  const dot = draw._paths[0].path.cmds.find((c) => c[0] === "addEllipse");
+  assert.ok(dot, "the star is drawn");
+  assert.ok(Math.abs(dot[3] - want) < 1e-9, "radius " + dot[3] + " vs " + want);
+});
+
+test("no star fainter than magnitude 4.5 is drawn in the preview", () => {
+  const ctx = panelContext();
+  const panel = ctx.AstroPreviewPanel.create({});
+  panel.setSky({ stars: skyOf([[4.0, 84, 0], [4.5, 84.5, 0], [4.6, 85, 0], [5.0, 85.5, 0]]), constellations: [], theme: "Realistic" });
+  panel.setCompSize(1920, 1080);
+  panel.setWidth(320);
+  panel.redraw();
+  const draw = panel.widget._items[1];
+  const dots = draw._paths[0].path.cmds.filter((c) => c[0] === "addEllipse");
+  assert.equal(dots.length, 2, "the 4.0 and the 4.5 stars only");
+  assert.equal(panel.stats().stars, 2);
+});
+
+test("constellation lines are drawn 0.75 px wide", () => {
+  const ctx = panelContext();
+  const panel = ctx.AstroPreviewPanel.create({});
+  panel.setSky({ stars: STARS, constellations: CONS, theme: "Realistic" });
+  panel.setCompSize(1920, 1080);
+  panel.setWidth(320);
+  panel.redraw();
+  const draw = panel.widget._items[1];
+  // Drawn second, after the stars: the stroked lines.
+  assert.equal(draw._paths[1].paint.stroke, true);
+  assert.equal(draw._paths[1].paint.strokeWidth, 0.75);
 });
