@@ -840,6 +840,8 @@ var AstroScene = (function () {
       // Centred in every mode (Cavalry cannot drive the alignment). The position offsets a side corner by half the title's
       // width, and reads the title's font size, so a change of size moves it.
       setOne(title, A.TEXT_ALIGN_ATTR, 1);
+      // The box hugs its text: a fixed 600 px box centres the text about 300 px right of the position.
+      api.set(title, { autoWidth: true, autoHeight: true });
       api.connect(title, "fontSize", pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, "fontSize"), true);
       api.parent(title, groupId);
     }

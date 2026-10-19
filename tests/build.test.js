@@ -747,6 +747,19 @@ test("the title is centred in every mode, and no alignment utility is made", () 
   assert.equal(api.get(childNamed(api, follows.groupId, "Title"), "horizontalAlignment"), 1, "Follows constellation is centred too");
 });
 
+// The title box hugs its text (autoWidth, autoHeight), so centring places the text on the position. A fixed box is
+// 600 px wide by default and the text centres inside it, about 300 px right of the position.
+test("the Title box hugs its text, after createReveal and after changeReveal", () => {
+  const { api, S, sky, reveal } = revealFixture();
+  const title = childNamed(api, reveal.groupId, "Title");
+  assert.equal(api.get(title, "autoWidth"), true, "autoWidth after createReveal");
+  assert.equal(api.get(title, "autoHeight"), true, "autoHeight after createReveal");
+  S.changeReveal(reveal.groupId, REVEAL_PARTS, {});
+  const rebuilt = childNamed(api, reveal.groupId, "Title");
+  assert.equal(api.get(rebuilt, "autoWidth"), true, "autoWidth after changeReveal");
+  assert.equal(api.get(rebuilt, "autoHeight"), true, "autoHeight after changeReveal");
+});
+
 test("the title position offsets a left corner by half the estimated width, a right corner by minus that, centre by none", () => {
   const { api, context, reveal } = revealFixture();
   const expr = String(api.get(childNamed(api, reveal.groupId, "Reveal title position"), "expression"));
