@@ -1,0 +1,1013 @@
+// Creates, connects and reads CavalryAstro's sky in Cavalry. Panel-only: uses `api`.
+// A sky is a group holding a Camera utility, a background rectangle, one star layer per non-empty colour band,
+// a glow (the bright stars, blurred), the constellation lines, borders and names. Every layer that draws the
+// sky takes its camera from the Camera (the Cavalry Geo pattern). The group's user data astroSky holds its theme.
+var AstroScene = (function () {
+  var A = AstroAttrs;
+  var E = AstroExpression;
+  var SKY_KEY = "astroSky", SKY_VERSION = 1;
+  // A layer's part is kept as its user data (the meta its expression carries), so lookups do not parse expressions.
+  // The sky group keeps the record of the Spotlight: its id and the reveal amounts it was built from.
+  var PART_KEY = "astroPart", SPOT_KEY = "astroSpotlight";
+  var GLOW_MAG = 2.5, GLOW_SIZE = 3, GLOW_BLUR = 6;
+  // Default text sizes of the whole-sky constellation names and of each reveal's star labels.
+  var NAMES_TEXT_SIZE = 22, REVEAL_LABEL_TEXT_SIZE = 26;
+  var PARTS = ["lines", "borders", "names"];
+  var NAMES = { camera: "Camera", background: "Sky background", glow: "Star glow", glowLevel: "Star glow opacity",
+    lines: "Constellation lines", borders: "Constellation borders", names: "Constellation names" };
+  // The sky layer kinds (render.js) and the inputs each one takes.
+  var KIND_INPUTS = { stars: E.STAR_INPUTS, lines: E.LINE_INPUTS, border: E.SKY_INPUTS, texts: E.TEXT_INPUTS };
+  var CAMERA_KEYS = ["ra", "dec", "fov", "rotation", "projection"];
+
+  var sky = null;   // the decoded catalogue, read once per session
+
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function numberOr(v, fallback) { var n = Number(v); return v === null || v === undefined || !isFinite(n) ? fallback : n; }
+
+  function userData(id, key) {
+    try { return typeof api.hasUserDataKey === "function" && api.hasUserDataKey(id, key) ? api.getUserDataKey(id, key) : null; } catch (e) { return null; }
+  }
+  function readExpr(id, attr) {
+    if (!api.hasAttribute(id, attr)) return "";
+    try { return String(api.get(id, attr) || ""); } catch (e) { return ""; }
+  }
+  function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
+
+  // Writes an input the way Cavalry reads it: an input fed from another layer's attribute (a Controls value, or a
+  // camera input the sky layers read) takes the value at that source, since a write to the fed input itself has no
+  // effect. The driver output "id" is not a value, so an input driven by one is written directly. Others are written directly.
+  function writeInput(id, attr, value) {
+    var from = "";
+    try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
+    var at = from.indexOf(".");
+    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
+    setOne(id, attr, value);
+  }
+
+  // Brings a sky's Controls up to date after a scene action (the panel script may load after this one: a missing panel is skipped).
+  // Returns the panel's result, or null.
+  function syncControls(s) {
+    return typeof AstroControlPanel === "undefined" ? null : AstroControlPanel.sync(s);
+  }
+
+  // The catalogue, decoded on first use. Throws a plain message when the sky data is not in the assets folder.
+  function skyData() {
+    if (sky) return sky;
+    var dir = A.ASSETS_DIR() + "/sky/", starsJson, consJson;
+    try {
+      starsJson = JSON.parse(String(api.readFromFile(dir + "stars.json")));
+      consJson = JSON.parse(String(api.readFromFile(dir + "constellations.json")));
+    } catch (e) {
+      throw new Error("The sky data is missing from the CavalryAstro_assets folder.");
+    }
+    sky = { stars: AstroCatalog.decodeStars(starsJson), cons: AstroCatalog.decodeConstellations(consJson) };
+    return sky;
+  }
+
+  // The theme from a theme object or a theme name (built-in). A bad object gives Realistic.
+  function themeFor(theme) {
+    if (typeof theme === "string") return AstroStyles.find(theme);
+    return AstroStyles.normalise(theme) || AstroStyles.find("Realistic");
+  }
+
+  // Camera values in the order of the camera utility's inputs, and as the layers' own camera inputs.
+  function cameraValues(cam, prefix) {
+    var v = {};
+    var names = prefix ? ["Ra", "Dec", "Fov", "Rotation", "Projection"] : ["centreRa", "centreDec", "fov", "rotation", "projection"];
+    CAMERA_KEYS.forEach(function (k, i) { v[(prefix || "") + names[i]] = cam[k]; });
+    return v;
+  }
+  function cleanCamera(cam) {
+    var c = cam || {};
+    return { ra: numberOr(c.ra, 83.8), dec: numberOr(c.dec, 0), fov: numberOr(c.fov, 60), rotation: numberOr(c.rotation, 0),
+      projection: numberOr(c.projection, 0) };
+  }
+
+  // Sets the inputs named in `inputs` on a layer's array (generator.array for shapes, array for utilities).
+  // A new layer already has slot 0, so a slot is only added when its index does not exist yet.
+  function addInputs(id, arrayAttr, inputs, values) {
+    for (var i = 0; i < inputs.length; i++) {
+      var name = inputs[i][0], attr = arrayAttr + "." + i;
+      if (!api.hasAttribute(id, attr)) api.addDynamic(id, arrayAttr, "double");
+      try { api.renameAttribute(id, attr, name); } catch (e) { /* display name only */ }
+      setOne(id, attr, values && values[name] !== undefined ? values[name] : inputs[i][1]);
+    }
+  }
+
+  function compSize() { return A.readResolution(api.get(api.getActiveComp(), A.COMP_RESOLUTION_ATTR)); }
+
+  // The camera's five values drive a sky layer's first five inputs, in the same order.
+  function connectCamera(cameraId, targetId) {
+    for (var i = 0; i < CAMERA_KEYS.length; i++) {
+      api.connect(cameraId, A.CAMERA_ARRAY_ATTR + "." + i, targetId, A.SHAPE_ARRAY_ATTR + "." + i, true);
+    }
+  }
+
+  function applyStyle(id, style) {
+    api.setFill(id, !!style.fill);
+    if (style.fill) setOne(id, A.FILL_COLOR_ATTR, A.COLOR_VALUE(style.fill));
+    api.setStroke(id, !!style.stroke);
+    if (style.stroke) {
+      setOne(id, A.STROKE_COLOR_ATTR, A.COLOR_VALUE(style.stroke));
+      setOne(id, A.STROKE_WIDTH_ATTR, style.width || 1);
+    }
+  }
+
+  function cameraLayer(groupId, cam) {
+    var id = api.create(A.CAMERA_LAYER_TYPE, NAMES.camera);
+    setOne(id, A.CAMERA_EXPR_ATTR, E.writeTag("ASTRO_META", { category: "camera" }) + "\n" + E.cameraExpression());
+    tagPart(id, { category: "camera" });
+    addInputs(id, A.CAMERA_ARRAY_ATTR, E.CAMERA_INPUTS, cameraValues(cam, ""));
+    api.parent(id, groupId);
+    return id;
+  }
+
+  function backgroundLayer(groupId, theme) {
+    var s = compSize(), id = api.primitive("rectangle", NAMES.background);
+    setOne(id, "generator.dimensions", [s.width, s.height]);
+    applyStyle(id, { fill: theme.background });
+    api.parent(id, groupId);
+    return id;
+  }
+
+  // One javaScriptShape layer that draws a sky layer kind from its own data, with the camera connected.
+  // opts are the layer kind's options (stars: ignoreLimit).
+  function skyShape(groupId, cameraId, name, kind, data, meta, cam, extra, opts) {
+    var id = api.create(A.SHAPE_LAYER_TYPE, name);
+    var values = cameraValues(cam, "cam"), s = compSize();
+    values.compW = s.width; values.compH = s.height;
+    for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) values[k] = extra[k];
+    addInputs(id, A.SHAPE_ARRAY_ATTR, KIND_INPUTS[kind], values);
+    setOne(id, A.SHAPE_EXPR_ATTR, E.layerExpression(ASTRO_SKY_SRC, kind, data, meta, opts));
+    tagPart(id, meta);
+    connectCamera(cameraId, id);
+    api.parent(id, groupId);
+    return id;
+  }
+
+  // Each colour band's stars, in band order (empty bands stay empty).
+  function starsByBand(stars) {
+    var out = [];
+    for (var b = 0; b < AstroStars.BANDS.length; b++) out.push({ ra: [], dec: [], mag: [] });
+    for (var i = 0; i < stars.count; i++) {
+      var g = out[AstroStars.bandOf(stars.bv[i])];
+      g.ra.push(stars.ra[i]); g.dec.push(stars.dec[i]); g.mag.push(stars.mag[i]);
+    }
+    return out;
+  }
+
+  function glowStars(stars) {
+    var g = { ra: [], dec: [], mag: [] };
+    for (var i = 0; i < stars.count; i++) {
+      if (!(stars.mag[i] < GLOW_MAG)) continue;
+      g.ra.push(stars.ra[i]); g.dec.push(stars.dec[i]); g.mag.push(stars.mag[i]);
+    }
+    return g;
+  }
+
+  function linesData(cons) {
+    var lines = [];
+    cons.forEach(function (c) { (c.lines || []).forEach(function (l) { lines.push(l); }); });
+    return { lines: lines };
+  }
+
+  function bordersData(cons) {
+    var rings = [];
+    cons.forEach(function (c) { (c.border || []).forEach(function (r) { rings.push(r); }); });
+    return { rings: rings };
+  }
+
+  function namesData(cons, nameCase) {
+    return { items: cons.map(function (c) {
+      return [nameCase === "upper" ? String(c.latin).toUpperCase() : String(c.latin), c.centre[0], c.centre[1]];
+    }) };
+  }
+
+  // A Fast Blur filter on a layer, in groupId, with the given amount.
+  function blurLayer(groupId, targetId, name, amount) {
+    var blur = api.create("blurFilter", name);
+    setOne(blur, "amount", { x: amount, y: amount });
+    api.connect(blur, "id", targetId, "filters");
+    api.parent(blur, groupId);
+    return blur;
+  }
+
+  function glowBlur(groupId, glowId) {
+    blurLayer(groupId, glowId, NAMES.glow + " blur", GLOW_BLUR);
+  }
+
+  // Tags a layer with its part (the meta its expression carries). Lookups read the tag before the expression.
+  function tagPart(id, meta) {
+    if (meta && typeof api.setUserData === "function") api.setUserData(id, PART_KEY, meta);
+  }
+
+  // A JavaScript Utility in groupId: its expression, its inputs (name, default), their values and its part's meta.
+  function utilityLayer(groupId, name, expr, inputs, values, meta) {
+    var id = api.create(A.CAMERA_LAYER_TYPE, name);
+    setOne(id, A.CAMERA_EXPR_ATTR, expr);
+    addInputs(id, A.CAMERA_ARRAY_ATTR, inputs, values || {});
+    api.parent(id, groupId);
+    tagPart(id, meta);
+    return id;
+  }
+
+  // The glow's opacity: a utility that scales the glow level (theme glow, or 0 when off) by the spotlight's share.
+  // The glow is driven, so applyTheme and setGlow write the level, not the glow's opacity.
+  function glowLevelLayer(groupId, glowId, level) {
+    var id = utilityLayer(groupId, NAMES.glowLevel, E.glowLevelExpression({ category: "glowLevel" }), E.GLOW_LEVEL_INPUTS,
+      { visible: 100, level: level }, { category: "glowLevel" });
+    api.connect(id, A.DRIVER_OUTPUT_ATTR, glowId, "opacity", true);
+    return id;
+  }
+
+  // The part of a sky layer: its tag, else the meta its expression carries (layers made before tags), or null.
+  function metaOf(id) {
+    var tag = userData(id, PART_KEY);
+    if (tag && typeof tag === "object") return tag;
+    return E.readTag(readExpr(id, A.SHAPE_EXPR_ATTR) || readExpr(id, A.CAMERA_EXPR_ATTR), "ASTRO_META");
+  }
+
+  // Makes a sky: the group, its Camera, and every layer, bottom first (each parented layer lands on top).
+  // cam: { ra, dec, fov, rotation, projection }. themeName: a theme name or a theme object. Returns { groupId, cameraId, name }.
+  function createSky(name, cam, themeName) {
+    var theme = themeFor(themeName), c = cleanCamera(cam), data = skyData();
+    var groupId = api.create("group", name);
+    saveSky({ groupId: groupId }, theme, true);
+    var cameraId = cameraLayer(groupId, c);
+    backgroundLayer(groupId, theme);
+    var borders = skyShape(groupId, cameraId, NAMES.borders, "border", bordersData(data.cons), { category: "borders" }, c);
+    applyStyle(borders, { stroke: theme.borders, width: theme.bordersWidth });
+    setOne(borders, "hidden", true);
+    var lines = skyShape(groupId, cameraId, NAMES.lines, "lines", linesData(data.cons), { category: "lines" }, c);
+    applyStyle(lines, { stroke: theme.lines, width: theme.linesWidth });
+    var glow = skyShape(groupId, cameraId, NAMES.glow, "stars", glowStars(data.stars), { category: "glow" }, c, null, { sizeScale: GLOW_SIZE });
+    applyStyle(glow, { fill: AstroStyles.previewColors(theme).star });
+    glowBlur(groupId, glow);
+    glowLevelLayer(groupId, glow, theme.glow * 100);
+    var colours = AstroStyles.starColours(theme), bands = starsByBand(data.stars);
+    for (var b = 0; b < bands.length; b++) {
+      if (!bands[b].ra.length) continue;
+      var band = skyShape(groupId, cameraId, "Stars · band " + b, "stars", bands[b], { category: "stars", band: b }, c);
+      applyStyle(band, { fill: colours[b] });
+    }
+    var names = skyShape(groupId, cameraId, NAMES.names, "texts", namesData(data.cons, theme.nameCase), { category: "names" }, c, { textSize: NAMES_TEXT_SIZE });
+    applyStyle(names, { fill: theme.names });
+    setOne(names, "hidden", true);
+    var made = { groupId: groupId, cameraId: cameraId, name: name }, ctl = syncControls(made);
+    // The sky's Controls are what the user works in, so they are selected rather than the group.
+    if (typeof api.select === "function") api.select([ctl && ctl.componentId ? ctl.componentId : groupId]);
+    return made;
+  }
+
+  // The layers of a sky by part: background, bands (in band order), glow, lines, borders, names (ids or null).
+  function skyLayers(s) {
+    var out = { background: null, bands: [], glow: null, glowLevel: null, lines: null, borders: null, names: null, spotlight: null };
+    var bandIds = [];
+    api.getChildren(s.groupId).forEach(function (id) {
+      if (api.getNiceName(id) === NAMES.background) { out.background = id; return; }
+      var m = metaOf(id);
+      if (!m) return;
+      if (m.category === "stars") bandIds[m.band] = id;
+      else if (m.category === "glow") out.glow = id;
+      else if (m.category === "glowLevel") out.glowLevel = id;
+      else if (m.category === "spotlight") out.spotlight = id;
+      else if (m.category === "lines") out.lines = id;
+      else if (m.category === "borders") out.borders = id;
+      else if (m.category === "names") out.names = id;
+    });
+    out.bands = bandIds.filter(function (id) { return !!id; });
+    return out;
+  }
+
+  // Every sky in the active comp, found by the astroSky user data on its group.
+  function findSkies() {
+    var skies = [];
+    api.getCompLayers(false).forEach(function (id) {
+      var d = userData(id, SKY_KEY);
+      if (!d || d.v !== SKY_VERSION) return;
+      var cameraId = null;
+      api.getChildren(id).forEach(function (child) {
+        var m = metaOf(child);
+        if (m && m.category === "camera") cameraId = child;
+      });
+      skies.push({ groupId: id, cameraId: cameraId, name: String(api.getNiceName(id)) });
+    });
+    return skies;
+  }
+
+  function themeOf(s) {
+    var d = userData(s.groupId, SKY_KEY);
+    return themeFor(d && d.theme ? d.theme : "Realistic");
+  }
+  // The glow is on unless the user turned it off (glow: false); both settings live in the sky's user data.
+  function glowOn(s) { var d = userData(s.groupId, SKY_KEY); return !(d && d.glow === false); }
+  function saveSky(s, theme, glow) { api.setUserData(s.groupId, SKY_KEY, { v: SKY_VERSION, theme: theme, glow: glow !== false }); }
+
+  // The theme the sky's layers show now, read live, so Controls tweaks count, named `name`. A value that is missing or
+  // not a colour keeps the sky's stored theme. Star mode is mono when every band has one fill (its colour is that fill).
+  // The reveal colours and widths come from the stored theme, as no reveal layer is read here.
+  function readSkyTheme(s, name) {
+    var base = themeOf(s), L = skyLayers(s), out = {}, bands = [];
+    Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    // Cavalry returns a colour as {r, g, b, a}; AstroStyles.toHex makes it "#rrggbb". Not a colour: the fallback.
+    function hexOr(id, attr, fallback) {
+      if (!id) return fallback;
+      return AstroStyles.toHex(api.get(id, attr)) || fallback;
+    }
+    function numOr(id, attr, fallback) {
+      if (!id) return fallback;
+      var n = Number(api.get(id, attr));
+      return isFinite(n) ? n : fallback;
+    }
+    out.background = hexOr(L.background, A.FILL_COLOR_ATTR, base.background);
+    out.lines = hexOr(L.lines, A.STROKE_COLOR_ATTR, base.lines);
+    out.linesWidth = numOr(L.lines, A.STROKE_WIDTH_ATTR, base.linesWidth);
+    out.borders = hexOr(L.borders, A.STROKE_COLOR_ATTR, base.borders);
+    out.bordersWidth = numOr(L.borders, A.STROKE_WIDTH_ATTR, base.bordersWidth);
+    out.names = hexOr(L.names, A.FILL_COLOR_ATTR, base.names);
+    L.bands.forEach(function (id) { bands.push(hexOr(id, A.FILL_COLOR_ATTR, null)); });
+    var mono = bands.length > 0 && bands.every(function (c) { return c !== null && c === bands[0]; });
+    if (mono) { out.starMode = "mono"; out.starColour = bands[0]; }
+    else if (bands.length) out.starMode = "true";
+    // With the glow off the level reads 0, so the theme's own level is kept for when it is turned back on.
+    if (L.glowLevel) out.glow = glowOn(s) ? numOr(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", base.glow * 100) / 100 : base.glow;
+    out.name = name;
+    return AstroStyles.normalise(out);
+  }
+  // Stores a theme as the sky's theme (what Apply and the preview use), keeping the glow switch. Writes no layer.
+  function setSkyTheme(s, theme) { saveSky(s, themeFor(theme), glowOn(s)); }
+
+  // The camera's five values, as set by the panel.
+  function readCamera(s) {
+    function v(i) { return Number(api.get(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i)); }
+    return { ra: v(0), dec: v(1), fov: v(2), rotation: v(3), projection: Math.round(v(4)) };
+  }
+
+  function setCamera(s, cam) {
+    var vals = cameraValues(cam, ""), o = {};
+    E.CAMERA_INPUTS.forEach(function (inp, i) {
+      if (vals[inp[0]] !== undefined) writeInput(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i, vals[inp[0]]);
+    });
+  }
+
+  // The reveal star layers of every reveal in the sky (their stars and their glow).
+  function revealStarLayers(s) {
+    var out = [];
+    findReveals(s).forEach(function (r) {
+      api.getChildren(r.groupId).forEach(function (k) {
+        var m = metaOf(k);
+        if (m && (m.category === "revealStars" || m.category === "revealGlow")) out.push(k);
+      });
+    });
+    return out;
+  }
+
+  // Where the sky's star size comes from: the input a star layer reads it through ({id, attr}), or null when it is set
+  // directly on the layers. A driver output is not a value, so it does not count.
+  function starSizeSource(s) {
+    var L = skyLayers(s), star = L.bands[0] || L.glow;
+    if (!star) return null;
+    var from = "";
+    try { from = String(api.getInConnection(star, A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, "size")) || ""); } catch (e) { from = ""; }
+    var at = from.indexOf(".");
+    if (at < 0 || from.slice(at + 1) === A.DRIVER_OUTPUT_ATTR) return null;
+    return { id: from.slice(0, at), attr: from.slice(at + 1) };
+  }
+
+  // The whole-sky names layer's expression, with its constellation names in the case given.
+  function namesExpression(nameCase) {
+    return E.layerExpression(ASTRO_SKY_SRC, "texts", namesData(skyData().cons, nameCase), { category: "names" });
+  }
+
+  // Sets one star input on every star layer (bands and glow, and any extra ids); valueOf(id) gives each layer's value.
+  function setStarInput(s, name, valueOf, extra) {
+    var L = skyLayers(s), ids = L.bands.concat(L.glow ? [L.glow] : []).concat(extra || []), idx = E.inputIndex(E.STAR_INPUTS, name);
+    ids.forEach(function (id) { writeInput(id, A.SHAPE_ARRAY_ATTR + "." + idx, valueOf(id)); });
+  }
+
+  function setDarkness(s, value) {
+    var v = clamp(numberOr(value, 100), 0, 100);
+    setStarInput(s, "darkness", function () { return v; });
+  }
+
+  // The bands and the glow share one size input. The glow draws at GLOW_SIZE times it (its layer's sizeScale).
+  function setStarSize(s, value) {
+    var v = numberOr(value, 1);
+    setStarInput(s, "size", function () { return v; }, revealStarLayers(s));
+  }
+
+  // True colours (on) or the theme's one star colour (off), kept in the sky's theme.
+  function setStarColours(s, on) {
+    var theme = themeOf(s);
+    theme.starMode = on ? "true" : "mono";
+    applyTheme(s, theme);
+  }
+
+  function setGlow(s, on) {
+    var L = skyLayers(s);
+    saveSky(s, themeOf(s), !!on);
+    if (L.glowLevel) writeInput(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", on ? themeOf(s).glow * 100 : 0);
+  }
+
+  // Shows or hides one of the lines, borders or names.
+  function setWholeSky(s, part, on) {
+    if (PARTS.indexOf(part) < 0) throw new Error("Unknown sky part: " + part);
+    var id = skyLayers(s)[part];
+    if (id) writeInput(id, "hidden", !on);
+  }
+
+  // What the Stars tab shows for a sky: the darkness and size its star layers read, the colour and glow switches, and
+  // whether the whole-sky lines, borders and names are shown. A part the sky lacks reads as its default.
+  function readStars(s) {
+    var L = skyLayers(s), star = L.bands[0] || L.glow;
+    function starValue(name, fallback) {
+      if (!star) return fallback;
+      return numberOr(api.get(star, A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, name)), fallback);
+    }
+    function shown(id) { return id ? !api.get(id, "hidden") : true; }
+    return {
+      darkness: starValue("darkness", 100), size: starValue("size", 1), starColours: themeOf(s).starMode === "true",
+      glow: glowOn(s), lines: shown(L.lines), borders: shown(L.borders), names: shown(L.names)
+    };
+  }
+
+  // An attribute is driven when it is keyframed or connected: the theme does not overwrite it.
+  function isDriven(id, attr) {
+    var keys = [], from = "";
+    try { keys = api.getKeyframeTimes(id, attr) || []; } catch (e) { keys = []; }
+    if (keys.length) return true;
+    try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
+    return from !== "";
+  }
+
+  // Writes a theme's colours and widths onto a sky. Attributes that are keyframed or connected are left alone and
+  // counted in skipped (once per attribute). Returns { changed, skipped }. The theme is kept on the sky.
+  function applyTheme(s, theme) {
+    var t = themeFor(theme), L = skyLayers(s), colours = AstroStyles.starColours(t), seen = {};
+    var tally = { changed: 0, skipped: 0 };
+    function write(id, attr, value) {
+      if (!id) return;
+      var key = id + "|" + attr;
+      if (seen[key]) return;
+      seen[key] = true;
+      if (isDriven(id, attr)) { tally.skipped++; return; }
+      setOne(id, attr, value);
+      tally.changed++;
+    }
+    write(L.background, A.FILL_COLOR_ATTR, A.COLOR_VALUE(t.background));
+    write(L.lines, A.STROKE_COLOR_ATTR, A.COLOR_VALUE(t.lines));
+    write(L.lines, A.STROKE_WIDTH_ATTR, t.linesWidth);
+    write(L.borders, A.STROKE_COLOR_ATTR, A.COLOR_VALUE(t.borders));
+    write(L.borders, A.STROKE_WIDTH_ATTR, t.bordersWidth);
+    write(L.names, A.FILL_COLOR_ATTR, A.COLOR_VALUE(t.names));
+    L.bands.forEach(function (id) {
+      var m = metaOf(id);
+      write(id, A.FILL_COLOR_ATTR, A.COLOR_VALUE(colours[m.band]));
+    });
+    write(L.glow, A.FILL_COLOR_ATTR, A.COLOR_VALUE(AstroStyles.previewColors(t).star));
+    // The whole-sky names are written in the theme's case, so a change of case rewrites their text.
+    if (L.names && themeOf(s).nameCase !== t.nameCase) setOne(L.names, A.SHAPE_EXPR_ATTR, namesExpression(t.nameCase));
+    var glow = glowOn(s);
+    write(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", glow ? t.glow * 100 : 0);
+    saveSky(s, t, glow);
+    return tally;
+  }
+
+  // ---- Camera moves ---------------------------------------------------------------------------------
+  // A flight keys the Camera's centreRa, centreDec and fov for each frame of its range. Its record (the
+  // astroFlights user data on the Camera) lets a later Update flight rebuild the same keys. Ported from Cavalry Geo.
+  var FLIGHTS_KEY = "astroFlights", EXTEND_PAD_SECONDS = 3, DEFAULT_FPS = 25;
+  var STAR_FOV = 20;
+  var FLIGHT_ATTRS = [0, 1, 2].map(function (i) { return A.CAMERA_ARRAY_ATTR + "." + i; });
+
+  // Runs fn with the playhead on frame, then puts the playhead back.
+  function atFrame(frame, fn) {
+    var back = api.getFrame();
+    try { api.setFrame(frame); return fn(); } finally { api.setFrame(back); }
+  }
+
+  function compFrameRange() {
+    var v = api.get(api.getActiveComp(), A.COMP_FRAME_RANGE_ATTR);
+    if (Array.isArray(v)) return { start: Number(v[0]), end: Number(v[1]) };
+    return { start: Number(v.x), end: Number(v.y) };
+  }
+
+  function compFps() {
+    var f = Number(api.get(api.getActiveComp(), A.COMP_FPS_ATTR));
+    return isFinite(f) && f > 0 ? f : DEFAULT_FPS;
+  }
+
+  // Sets the camera's centre and field of view at once, without keys.
+  function jumpCamera(s, target) {
+    setCamera(s, { ra: target.ra, dec: target.dec, fov: target.fov });
+  }
+
+  // The view a constellation is framed in: its centre is the spherical mean of its border points, and its fov is the
+  // smallest that holds every border point and line vertex inside 85 % of the comp's width and height.
+  var FRAME_SHARE = 0.85;
+  function constellationFov(c, centre, compW, compH) {
+    var pts = [];
+    (c.border || []).forEach(function (ring) { ring.forEach(function (p) { pts.push(p); }); });
+    (c.lines || []).forEach(function (line) { line.forEach(function (p) { pts.push(p); }); });
+    return AstroSky.fitFov(pts, centre, compW, compH, FRAME_SHARE);
+  }
+  function constellationCentre(c) {
+    var pts = [];
+    (c.border || []).forEach(function (ring) { ring.forEach(function (p) { pts.push(p); }); });
+    return pts.length ? AstroSky.mid(pts) : c.centre;
+  }
+
+  // A fly target: a constellation (index into the catalogue) or a star (index into the star list).
+  // Returns { kind, index, label, ra, dec, fov }. A constellation's fov depends on the comp's size.
+  function flyTarget(kind, index) {
+    var data = skyData();
+    if (kind === "constellation") {
+      var c = data.cons[index];
+      if (!c) throw new Error("No constellation at index " + index);
+      var comp = compSize(), centre = constellationCentre(c);
+      return { kind: kind, index: index, label: c.latin, ra: centre[0], dec: centre[1], fov: constellationFov(c, centre, comp.width, comp.height) };
+    }
+    if (kind === "star") {
+      var st = data.stars;
+      if (!(index >= 0 && index < st.count)) throw new Error("No star at index " + index);
+      return { kind: kind, index: index, label: st.name[index] || st.bayer[index] || "Star", ra: st.ra[index], dec: st.dec[index], fov: STAR_FOV };
+    }
+    throw new Error("Unknown fly target: " + kind);
+  }
+
+  // Keys the camera along points (one per frame from startFrame, as AstroFly.path gives them). RA is unwrapped
+  // so that no two consecutive keys sit 360 apart: the first key is nearest the camera's centreRa.
+  // Keys already in the range are replaced. The seed is the camera's RA at startFrame (not at the playhead), so every
+  // caller (flights, Update flight, Drift) unwraps from the same place. Returns { start, end }.
+  function flyCamera(s, points, startFrame) {
+    var end = startFrame + points.length - 1, prevRa = readCameraAt(s, startFrame).ra;
+    if (!isFinite(prevRa)) prevRa = points[0].ra;
+    FLIGHT_ATTRS.forEach(function (attr) {
+      (api.getKeyframeTimes(s.cameraId, attr) || []).forEach(function (f) {
+        if (f >= startFrame && f <= end) api.deleteKeyframe(s.cameraId, attr, f);
+      });
+    });
+    points.forEach(function (p, k) {
+      prevRa = AstroSky.nearestRa(p.ra, prevRa);
+      var o = {};
+      o[FLIGHT_ATTRS[0]] = prevRa; o[FLIGHT_ATTRS[1]] = p.dec; o[FLIGHT_ATTRS[2]] = p.fov;
+      api.keyframe(s.cameraId, startFrame + k, o);
+    });
+    return { start: startFrame, end: end };
+  }
+
+  // Flies the camera from where it is at start to target, over frames start to end (end - start steps).
+  // opts: { start, end, easing, arc } with AstroFly ids (defaults: smooth, normal). Keys the frames, and
+  // remembers the flight. Returns { start, end }.
+  function flyTo(s, target, opts) {
+    var start = opts.start, end = opts.end, easing = opts.easing || "smooth", arc = opts.arc || "normal";
+    return atFrame(start, function () {
+      var b = readCamera(s), from = { ra: b.ra, dec: b.dec, fov: b.fov };
+      var to = { ra: target.ra, dec: target.dec, fov: target.fov };
+      var range = flyCamera(s, AstroFly.path(from, to, end - start, { easing: easing, arc: arc }), start);
+      recordFlight(s, { start: start, end: end, from: from, to: to, target: target, easing: easing, arc: arc });
+      return range;
+    });
+  }
+
+  function readFlights(s) {
+    var v = userData(s.cameraId, FLIGHTS_KEY);
+    return Array.isArray(v) ? v : [];
+  }
+
+  // Remembers a flight on the Camera. A new record replaces any it overlaps; chained flights share one
+  // boundary frame (0-20 then 20-40), which is not an overlap. A record over exactly the same frames keeps its place.
+  function recordFlight(s, rec) {
+    if (typeof api.setUserData !== "function") return;
+    var all = readFlights(s), kept = all.filter(function (r) { return r.end <= rec.start || r.start >= rec.end; });
+    var gone = all.filter(function (r) { return kept.indexOf(r) < 0; });
+    if (gone.length === 1 && gone[0].start === rec.start && gone[0].end === rec.end) kept.splice(all.indexOf(gone[0]), 0, rec);
+    else kept.push(rec);
+    api.setUserData(s.cameraId, FLIGHTS_KEY, kept);
+  }
+
+  // The latest-made flight, or null.
+  function lastFlight(s) {
+    var all = readFlights(s);
+    return all.length ? all[all.length - 1] : null;
+  }
+
+  // The latest-made flight whose range holds the frame, or null.
+  function flightAt(s, frame) {
+    var all = readFlights(s);
+    for (var i = all.length - 1; i >= 0; i--) if (all[i].start <= frame && frame <= all[i].end) return all[i];
+    return null;
+  }
+
+  // The camera's centre and fov at a frame.
+  function readCameraAt(s, frame) {
+    return atFrame(frame, function () { return readCamera(s); });
+  }
+
+  // Where a flight really begins: the end view of a remembered flight that finishes where this one starts (a chain),
+  // else the camera as it is one frame before it, or the recorded start on the composition's first frame.
+  function flightStart(s, rec) {
+    var before = readFlights(s).filter(function (r) { return r.end === rec.start && r.start < rec.start; });
+    if (before.length) {
+      var p = before[before.length - 1].to;
+      return { ra: p.ra, dec: p.dec, fov: p.fov };
+    }
+    if (rec.start > compFrameRange().start) {
+      var c = readCameraAt(s, rec.start - 1);
+      return { ra: c.ra, dec: c.dec, fov: c.fov };
+    }
+    return { ra: rec.from.ra, dec: rec.from.dec, fov: rec.from.fov };
+  }
+
+  // Lengthens the composition for a flight ending at newEnd: the new end is newEnd plus 3 seconds. The layers
+  // that reached the old end move to the new end (a layer's out frame is one past its last frame), and so does
+  // the play range when it reached the old end. Layers trimmed to end earlier are left alone.
+  // Returns { oldEnd, newEnd, layers }, or null when the composition is already long enough.
+  function extendComp(newEnd) {
+    var comp = api.getActiveComp(), oldEnd = compFrameRange().end;
+    var target = Math.round(newEnd + EXTEND_PAD_SECONDS * compFps());
+    if (!(target > oldEnd)) return null;
+    return { oldEnd: oldEnd, newEnd: target, layers: extendOne(comp, oldEnd, target) };
+  }
+
+  // Moves the layers that reached oldEnd, the comp's end and (when it reached oldEnd) its play range to newEnd.
+  // Returns how many layers moved.
+  function extendOne(comp, oldEnd, newEnd) {
+    var layers = 0;
+    if (typeof api.getOutFrame === "function" && typeof api.setOutFrame === "function") {
+      api.getCompLayers(false).forEach(function (id) {
+        try {
+          if (Number(api.getOutFrame(id)) >= oldEnd) { api.setOutFrame(id, newEnd + 1); layers++; }
+        } catch (e) { /* one layer that can't be extended never stops the rest */ }
+      });
+    }
+    var playsToEnd = false;
+    try { playsToEnd = Number(api.get(comp, A.COMP_PLAYBACK_END_ATTR)) >= oldEnd; } catch (e) { /* no play range to keep */ }
+    var end = {};
+    end[A.COMP_END_ATTR] = newEnd;
+    api.set(comp, end);
+    if (playsToEnd) { var play = {}; play[A.COMP_PLAYBACK_END_ATTR] = newEnd; api.set(comp, play); }
+    return layers;
+  }
+
+  // ---- Reveals and spotlight (Task 9) ---------------------------------------------------------------
+  // A reveal is a group inside its sky, above the sky's own layers. It holds the reveal amount (a utility keyed
+  // 0 at the start and 100 at the end: the one source of truth), the stage utilities that turn the amount into
+  // each part's value, and the parts. The sky's Spotlight dims the sky's layers by the largest reveal's spotlight.
+  // Ported from Cavalry Geo's highlights (numbering, records on the group, rebuild in place).
+  var REVEAL_KEY = "astroReveal", REVEALS_KEY = "astroReveals", REVEAL_VERSION = 1;
+  var REVEAL_PARTS = ["lines", "border", "title", "labels"];
+  var STAGE_NAMES = { border: "Reveal border opacity", lines: "Reveal lines draw", labels: "Reveal labels opacity",
+    title: "Reveal title opacity" };
+  var REVEAL_GLOW_BLUR = 8;
+  var DEFAULT_SPOTLIGHT = 60, DEFAULT_CORNER = 1, DEFAULT_MARGIN = 60, DEFAULT_OFFSET_Y = 80;
+
+  function pickNumber(v, fallback) {
+    return v === undefined || v === null || !isFinite(Number(v)) ? fallback : Number(v);
+  }
+
+  // The parts asked for, in REVEAL_PARTS order. An unknown part throws.
+  function chosenParts(parts) {
+    var asked = parts || [];
+    asked.forEach(function (p) { if (REVEAL_PARTS.indexOf(p) < 0) throw new Error("Unknown reveal part: " + p); });
+    return REVEAL_PARTS.filter(function (p) { return asked.indexOf(p) >= 0; });
+  }
+
+  // The name a title or reveal shows: the theme's case.
+  function caseName(name, nameCase) {
+    return nameCase === "upper" ? String(name).toUpperCase() : String(name);
+  }
+
+  // A reveal's record on its group, or null for a group that is not a reveal.
+  function revealRecord(groupId) {
+    var d = userData(groupId, REVEAL_KEY);
+    return d && d.v === REVEAL_VERSION ? d : null;
+  }
+  function setRecord(groupId, rec) { api.setUserData(groupId, REVEAL_KEY, rec); }
+
+  // The reveal's amount utility (the child tagged revealAmount), or null.
+  function revealAmountOf(groupId) {
+    var found = null;
+    api.getChildren(groupId).forEach(function (k) { var m = metaOf(k); if (m && m.category === "revealAmount") found = k; });
+    return found;
+  }
+
+  // Every reveal group in the sky, by number (oldest first for equal numbers).
+  // A reveal with no amount utility is broken (its amount was deleted by hand): it is not listed here, and
+  // prepareReveals removes it.
+  function findReveals(s) {
+    var out = [];
+    api.getChildren(s.groupId).forEach(function (g) {
+      var rec = revealRecord(g), amountId = rec ? revealAmountOf(g) : null;
+      if (!rec || !amountId) return;
+      out.push({ groupId: g, number: pickNumber(rec.number, 0), con: rec.con, parts: rec.parts || [],
+        amountId: amountId, name: String(api.getNiceName(g)) });
+    });
+    return out.sort(function (a, b) { return a.number - b.number; });
+  }
+
+  // The members of a reveal, by part (ids, or null when the part is not drawn), and the constellation's name.
+  // The Controls read these: the border and its glow are the two rings the Border colour drives.
+  function revealMembers(r) {
+    var out = { constellation: "", lines: null, border: null, borderGlow: null, labels: null, title: null };
+    var rec = revealRecord(r.groupId);
+    if (rec) out.constellation = rec.name;
+    api.getChildren(r.groupId).forEach(function (k) {
+      var m = metaOf(k);
+      if (m && m.category === "revealLines") out.lines = k;
+      else if (m && m.category === "revealBorder") out.border = k;
+      else if (m && m.category === "revealBorderGlow") out.borderGlow = k;
+      else if (m && m.category === "revealLabels") out.labels = k;
+      else if (api.getNiceName(k) === "Title") out.title = k;
+    });
+    return out;
+  }
+
+  function highestNumber(s) {
+    return findReveals(s).reduce(function (m, r) { return Math.max(m, r.number); }, 0);
+  }
+
+  // The sky a reveal group belongs to (its parent), with the sky's camera.
+  function skyOfGroup(groupId) {
+    var parent = api.getParent(groupId), cameraId = null;
+    api.getChildren(parent).forEach(function (k) { var m = metaOf(k); if (m && m.category === "camera") cameraId = k; });
+    return { groupId: parent, cameraId: cameraId, name: String(api.getNiceName(parent)) };
+  }
+
+  // The sky's reveal registry (its group ids), which prepareReveals checks for deleted groups.
+  function registry(s) {
+    var v = userData(s.groupId, REVEALS_KEY);
+    return Array.isArray(v) ? v : [];
+  }
+  function register(s, groupId) {
+    api.setUserData(s.groupId, REVEALS_KEY, registry(s).concat([groupId]));
+  }
+
+  // Connects a layer's output to one named input of a utility or shape (arrayAttr: "array" or "generator.array").
+  function feedInput(fromId, fromAttr, toId, arrayAttr, inputs, name) {
+    api.connect(fromId, fromAttr, toId, arrayAttr + "." + E.inputIndex(inputs, name), true);
+  }
+
+  // The constellation index of a constellation id, or -1.
+  function conIndexOf(conId) {
+    var cons = skyData().cons;
+    for (var i = 0; i < cons.length; i++) if (cons[i].id === conId) return i;
+    return -1;
+  }
+
+  // The members of a reveal, made in groupId: a stage utility per part, and the part's layers (lines, border with a
+  // blur copy, one star layer per band present, labels, title with its position). Each part is driven by its stage.
+  function buildMembers(s, groupId, c, parts, amountId) {
+    var theme = themeOf(s), cam = readCamera(s), data = skyData(), cw = compSize(), colours = AstroStyles.starColours(theme);
+    function stage(part) {
+      var id = utilityLayer(groupId, STAGE_NAMES[part], E.stageExpression(ASTRO_REVEAL_SRC, part, { category: "revealStage", part: part }),
+        E.STAGE_INPUTS, {}, { category: "revealStage", part: part });
+      api.connect(amountId, A.CAMERA_ARRAY_ATTR + ".0", id, A.CAMERA_ARRAY_ATTR + ".0", true);
+      return id;
+    }
+    // The border stage also fades the reveal's stars in, so it is always made.
+    var borderId = stage("border");
+    if (parts.indexOf("lines") >= 0) {
+      var drawId = stage("lines");
+      var lines = skyShape(groupId, s.cameraId, "Reveal lines", "lines", { lines: c.lines || [] }, { category: "revealLines" }, cam);
+      applyStyle(lines, { stroke: theme.revealLines, width: theme.revealLinesWidth });
+      feedInput(drawId, A.DRIVER_OUTPUT_ATTR, lines, A.SHAPE_ARRAY_ATTR, E.LINE_INPUTS, "draw");
+    }
+    if (parts.indexOf("border") >= 0) {
+      ["Reveal border", "Reveal border glow"].forEach(function (name, k) {
+        var ring = skyShape(groupId, s.cameraId, name, "border", { rings: c.border || [] }, { category: k ? "revealBorderGlow" : "revealBorder" }, cam);
+        applyStyle(ring, { stroke: theme.revealBorder, width: theme.revealBorderWidth });
+        api.connect(borderId, A.DRIVER_OUTPUT_ATTR, ring, "opacity", true);
+        if (k) blurLayer(groupId, ring, name + " blur", REVEAL_GLOW_BLUR);
+      });
+    }
+    // The reveal's stars: one layer per colour band the constellation's stars fall in, and a glow copy of its stars
+    // brighter than GLOW_MAG (3 times the size, blurred, as the sky's glow). They ignore the darkness limit, so lines always
+    // join stars. Their size is the sky's star size (the source its stars read, else the value now), and they fade in with
+    // the border stage. The spotlight does not dim them.
+    var bands = [], glowRows = { ra: [], dec: [], mag: [] };
+    for (var b = 0; b < AstroStars.BANDS.length; b++) bands.push({ ra: [], dec: [], mag: [] });
+    (c.stars || []).forEach(function (row) {
+      var g = bands[AstroStars.bandOf(data.stars.bv[row])];
+      g.ra.push(data.stars.ra[row]); g.dec.push(data.stars.dec[row]); g.mag.push(data.stars.mag[row]);
+      if (data.stars.mag[row] < GLOW_MAG) {
+        glowRows.ra.push(data.stars.ra[row]); glowRows.dec.push(data.stars.dec[row]); glowRows.mag.push(data.stars.mag[row]);
+      }
+    });
+    var sizeFrom = starSizeSource(s), sizeAttr = A.SHAPE_ARRAY_ATTR + "." + E.inputIndex(E.STAR_INPUTS, "size"), sizeNow = readStars(s).size;
+    function revealStarLayer(name, rows, meta, opts, fill) {
+      var layer = skyShape(groupId, s.cameraId, name, "stars", rows, meta, cam, null, opts);
+      applyStyle(layer, { fill: fill });
+      if (sizeFrom) api.connect(sizeFrom.id, sizeFrom.attr, layer, sizeAttr, true);
+      else setOne(layer, sizeAttr, sizeNow);
+      api.connect(borderId, A.DRIVER_OUTPUT_ATTR, layer, "opacity", true);
+      return layer;
+    }
+    bands.forEach(function (g, band) {
+      if (!g.ra.length) return;
+      revealStarLayer("Reveal stars · band " + band, g, { category: "revealStars", band: band }, { ignoreLimit: true }, colours[band]);
+    });
+    if (glowRows.ra.length) {
+      var glow = revealStarLayer("Reveal star glow", glowRows, { category: "revealGlow" }, { ignoreLimit: true, sizeScale: GLOW_SIZE },
+        AstroStyles.previewColors(theme).star);
+      blurLayer(groupId, glow, "Reveal star glow blur", GLOW_BLUR);
+    }
+    if (parts.indexOf("labels") >= 0) {
+      var labelId = stage("labels");
+      var items = [];
+      (c.stars || []).forEach(function (row) {
+        var text = AstroStars.labelText(data.stars.name[row], data.stars.bayer[row], c.id, "bayer");
+        if (text) items.push([text, data.stars.ra[row], data.stars.dec[row]]);
+      });
+      var labels = skyShape(groupId, s.cameraId, "Reveal labels", "texts", { items: items }, { category: "revealLabels" }, cam, { textSize: REVEAL_LABEL_TEXT_SIZE });
+      applyStyle(labels, { fill: theme.revealLabels });
+      api.connect(labelId, A.DRIVER_OUTPUT_ATTR, labels, "opacity", true);
+    }
+    if (parts.indexOf("title") >= 0) {
+      var titleId = stage("title");
+      var pos = utilityLayer(groupId, "Reveal title position", E.titlePositionExpression(ASTRO_REVEAL_SRC, { category: "revealTitle" }, caseName(c.latin, theme.nameCase).length),
+        E.TITLE_INPUTS, { conRa: c.centre[0], conDec: c.centre[1], compW: cw.width, compH: cw.height }, { category: "revealTitle" });
+      ["titleMode", "corner", "margin", "offsetY"].forEach(function (n) {
+        api.connect(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n),
+          pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, n), true);
+      });
+      [["camRa", 0], ["camDec", 1], ["camFov", 2], ["camRotation", 3]].forEach(function (p) {
+        api.connect(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + p[1], pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, p[0]), true);
+      });
+      var title = api.create(A.TEXT_LAYER_TYPE, "Title");
+      setOne(title, A.TEXT_ATTR, caseName(c.latin, theme.nameCase));
+      applyStyle(title, { fill: theme.title });
+      api.connect(pos, A.DRIVER_OUTPUT_ATTR, title, "position", true);
+      api.connect(titleId, A.DRIVER_OUTPUT_ATTR, title, "opacity", true);
+      // Centred in every mode (Cavalry cannot drive the alignment). The position offsets a side corner by half the title's
+      // width, and reads the title's font size, so a change of size moves it.
+      setOne(title, A.TEXT_ALIGN_ATTR, 1);
+      // The box hugs its text: a fixed 600 px box centres the text about 300 px right of the position.
+      api.set(title, { autoWidth: true, autoHeight: true });
+      api.connect(title, "fontSize", pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, "fontSize"), true);
+      api.parent(title, groupId);
+    }
+  }
+
+  // Sets the reveal's amount settings the panel changed (spotlight, titleMode, corner, margin, offsetY).
+  function setAmountSettings(amountId, o) {
+    ["spotlight", "titleMode", "corner", "margin", "offsetY"].forEach(function (n) {
+      if (o[n] === undefined) return;
+      writeInput(amountId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.REVEAL_INPUTS, n), Number(o[n]));
+    });
+  }
+
+  // Makes a reveal of constellation conIndex in sky s: its amount keyed 0 at start and 100 at start + frames.
+  // parts: which of REVEAL_PARTS to draw (the stars always are). opts: { titleMode: 0 Header or 1 Follows,
+  // spotlight, corner, margin, offsetY }. Returns { groupId, number }.
+  function createReveal(s, conIndex, parts, start, frames, opts) {
+    var c = skyData().cons[conIndex];
+    if (!c) throw new Error("No constellation at index " + conIndex);
+    var o = opts || {}, chosen = chosenParts(parts);
+    var first = Math.round(pickNumber(start, 0)), len = Math.max(1, Math.round(pickNumber(frames, 1)));
+    var number = highestNumber(s) + 1;
+    var groupId = api.create("group", "Reveal " + number + ": " + c.latin);
+    setRecord(groupId, { v: REVEAL_VERSION, con: c.id, name: c.latin, parts: chosen, number: number });
+    api.parent(groupId, s.groupId);
+    var amountId = utilityLayer(groupId, "Reveal amount", E.revealAmountExpression({ category: "revealAmount" }), E.REVEAL_INPUTS, {
+      spotlight: pickNumber(o.spotlight, DEFAULT_SPOTLIGHT), titleMode: pickNumber(o.titleMode, 0),
+      corner: pickNumber(o.corner, DEFAULT_CORNER), margin: pickNumber(o.margin, DEFAULT_MARGIN), offsetY: pickNumber(o.offsetY, DEFAULT_OFFSET_Y)
+    }, { category: "revealAmount" });
+    api.keyframe(amountId, first, { "array.0": 0 });
+    api.keyframe(amountId, first + len, { "array.0": 100 });
+    buildMembers(s, groupId, c, chosen, amountId);
+    register(s, groupId);
+    refreshSpotlight(s);
+    syncControls(s);
+    return { groupId: groupId, number: number };
+  }
+
+  // Rebuilds a reveal in place: the same group, number, name and amount keys. Its parts are replaced by the ones
+  // asked for; opts may change the amount's settings. Returns { groupId, number }.
+  function changeReveal(groupId, parts, opts) {
+    var rec = revealRecord(groupId);
+    if (!rec) throw new Error("Not a reveal: " + groupId);
+    var c = skyData().cons[conIndexOf(rec.con)];
+    if (!c) throw new Error("The constellation of this reveal is not in the sky data.");
+    var s = skyOfGroup(groupId), amountId = revealAmountOf(groupId), chosen = chosenParts(parts);
+    // Checked before anything is deleted: without its amount the reveal cannot be rebuilt.
+    if (!amountId) throw new Error("This reveal has no amount utility, so it cannot be changed. Delete it and make it again.");
+    api.getChildren(groupId).forEach(function (k) { if (k !== amountId) api.deleteLayer(k); });
+    if (amountId) setAmountSettings(amountId, opts || {});
+    buildMembers(s, groupId, c, chosen, amountId);
+    rec.parts = chosen;
+    setRecord(groupId, rec);
+    refreshSpotlight(s);
+    syncControls(s);
+    return { groupId: groupId, number: rec.number };
+  }
+
+  // (Re)builds the Spotlight utility in the sky group from the reveals now in it, and connects it: the whole-sky
+  // layers' opacity becomes 100 minus the spotlight dim, and the glow level is scaled by the same visible share.
+  // The old Spotlight is replaced, and every driven layer is connected again, so none keeps a stale dim.
+  function refreshSpotlight(s) {
+    var L = skyLayers(s), reveals = findReveals(s);
+    if (L.spotlight) api.deleteLayer(L.spotlight);
+    var spot = utilityLayer(s.groupId, "Spotlight", E.spotlightExpression(ASTRO_REVEAL_SRC, reveals.length, { category: "spotlight" }),
+      E.spotlightInputs(reveals.length), {}, { category: "spotlight" });
+    api.setUserData(s.groupId, SPOT_KEY, { spot: spot, amounts: reveals.map(function (r) { return r.amountId; }) });
+    reveals.forEach(function (r, k) {
+      api.connect(r.amountId, A.CAMERA_ARRAY_ATTR + ".0", spot, A.CAMERA_ARRAY_ATTR + "." + (2 * k), true);
+      api.connect(r.amountId, A.CAMERA_ARRAY_ATTR + ".1", spot, A.CAMERA_ARRAY_ATTR + "." + (2 * k + 1), true);
+    });
+    L.bands.concat([L.lines, L.borders, L.names]).forEach(function (id) {
+      if (id) api.connect(spot, A.DRIVER_OUTPUT_ATTR, id, "opacity", true);
+    });
+    if (L.glowLevel) api.connect(spot, A.DRIVER_OUTPUT_ATTR, L.glowLevel, A.CAMERA_ARRAY_ATTR + ".0", true);
+    return spot;
+  }
+
+  // Gives the reveals a number each (oldest first): a duplicate number takes the highest + 1, and the group is renamed.
+  // Returns how many reveals were given a new number.
+  function renumber(reveals) {
+    var top = 0, seen = {}, renamed = 0;
+    reveals.forEach(function (r) { top = Math.max(top, r.number); });
+    reveals.forEach(function (r) {
+      if (r.number && !seen[r.number]) { seen[r.number] = true; return; }
+      top += 1; seen[top] = true;
+      var rec = revealRecord(r.groupId);
+      if (!rec) return;
+      rec.number = top;
+      setRecord(r.groupId, rec);
+      renamed++;
+      if (typeof api.rename === "function") { try { api.rename(r.groupId, "Reveal " + top + ": " + rec.name); } catch (e) { /* cosmetic */ } }
+    });
+    return renamed;
+  }
+
+  // True when the Spotlight was built from exactly these reveals' amounts, and still exists.
+  function spotlightUpToDate(s, reveals) {
+    var rec = userData(s.groupId, SPOT_KEY), L = skyLayers(s);
+    if (!L.spotlight || !rec || rec.spot !== L.spotlight) return false;
+    return JSON.stringify(rec.amounts) === JSON.stringify(reveals.map(function (r) { return r.amountId; }));
+  }
+
+  // Drops the reveals whose group is gone, renumbers the rest, and rebuilds the Spotlight and the Controls when something
+  // changed (a reveal dropped or renumbered, or the Spotlight not built from these reveals). The panel calls this on every
+  // press, so an unchanged sky is left alone. Returns how many were dropped.
+  // A reveal whose group is still there but whose amount is gone is broken: its members and then its group are deleted.
+  function prepareReveals(s) {
+    var live = api.getChildren(s.groupId), ids = registry(s), kept = [], removed = 0;
+    ids.forEach(function (g) {
+      if (live.indexOf(g) < 0) { removed++; return; }
+      if (!revealAmountOf(g)) {
+        api.getChildren(g).forEach(function (k) { api.deleteLayer(k); });
+        if (!api.getChildren(g).length) api.deleteLayer(g);
+        removed++;
+        return;
+      }
+      kept.push(g);
+    });
+    if (removed) api.setUserData(s.groupId, REVEALS_KEY, kept);
+    var reveals = findReveals(s), renamed = renumber(reveals);
+    if (removed || renamed || !spotlightUpToDate(s, reveals)) {
+      refreshSpotlight(s);
+      syncControls(s);
+    }
+    return removed;
+  }
+
+  return {
+    createSky: createSky,
+    findSkies: findSkies,
+    skyData: skyData,
+    skyTheme: themeOf,
+    readSkyTheme: readSkyTheme,
+    setSkyTheme: setSkyTheme,
+    compFrameRange: compFrameRange,
+    compFps: compFps,
+    skyLayers: skyLayers,
+    readCamera: readCamera,
+    setCamera: setCamera,
+    setWholeSky: setWholeSky,
+    readStars: readStars,
+    setDarkness: setDarkness,
+    setStarSize: setStarSize,
+    setStarColours: setStarColours,
+    setGlow: setGlow,
+    applyTheme: applyTheme,
+    jumpCamera: jumpCamera,
+    flyTarget: flyTarget,
+    flyCamera: flyCamera,
+    flyTo: flyTo,
+    recordFlight: recordFlight,
+    lastFlight: lastFlight,
+    flightAt: flightAt,
+    flightStart: flightStart,
+    readCameraAt: readCameraAt,
+    extendComp: extendComp,
+    REVEAL_PARTS: REVEAL_PARTS,
+    createReveal: createReveal,
+    findReveals: findReveals,
+    revealMembers: revealMembers,
+    changeReveal: changeReveal,
+    refreshSpotlight: refreshSpotlight,
+    prepareReveals: prepareReveals
+  };
+})();
+if (typeof module !== "undefined" && module.exports) module.exports = AstroScene;
