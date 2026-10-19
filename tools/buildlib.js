@@ -34,6 +34,11 @@ function copyAssetIfPresent(name, destDir) {
   if (fs.existsSync(src)) copyDirSync(src, path.join(destDir, name));
 }
 
+// Copies plugin/CavalryAstro_plugin (the Reproject filter's definitions, strings, shader and icons) into destDir.
+function copyPlugin(destDir) {
+  copyDirSync(path.join(ROOT, "plugin", "CavalryAstro_plugin"), path.join(destDir, "CavalryAstro_plugin"));
+}
+
 function buildRuntimeSource(name) {
   if (!Object.prototype.hasOwnProperty.call(RUNTIMES, name)) throw new Error("No runtime named " + name);
   return RUNTIMES[name].map(read).join("\n;\n");
@@ -55,4 +60,4 @@ function buildPanel(options = {}) {
   ].join("\n;\n");
 }
 
-module.exports = { ROOT, RUNTIMES, CORE_FILES, CAVALRY_FILES, buildRuntimeSource, buildPanel, copyDirSync, copyAssetIfPresent };
+module.exports = { ROOT, RUNTIMES, CORE_FILES, CAVALRY_FILES, buildRuntimeSource, buildPanel, copyDirSync, copyAssetIfPresent, copyPlugin };

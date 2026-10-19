@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { crc32, createZip } = require("../tools/ziplib.js");
+const { copyPlugin } = require("../tools/buildlib.js");
 
 // Minimal reader: walks the central directory and inflates each entry.
 function readZip(buf) {
@@ -64,11 +65,19 @@ test("the release zip holds the plugin, its data and the docs, and no private or
     fs.mkdirSync(path.join(dist, "CavalryAstro_assets", "sky"), { recursive: true });
     fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "stars.json"), "{}");
     fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "constellations.json"), "{}");
+    copyPlugin(dist);
     const names = packageFiles(dist, "0.1.0").map((f) => f.name).sort();
     assert.deepEqual(names, [
       "CavalryAstro.js",
       "CavalryAstro_assets/sky/constellations.json",
       "CavalryAstro_assets/sky/stars.json",
+      "CavalryAstro_plugin/cavalryAstro.png",
+      "CavalryAstro_plugin/cavalryAstro@2x.png",
+      "CavalryAstro_plugin/cavalryAstro_ae.png",
+      "CavalryAstro_plugin/cavalryAstro_ae@2x.png",
+      "CavalryAstro_plugin/definitions.json",
+      "CavalryAstro_plugin/reproject.sksl",
+      "CavalryAstro_plugin/strings.json",
       "INSTALL.txt",
       "LICENSE",
       "README.md",

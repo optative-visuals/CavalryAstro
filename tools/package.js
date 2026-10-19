@@ -15,6 +15,7 @@ function installText(version) {
     "   not inside another folder).",
     "   Updating? Replace CavalryAstro.js, and merge the new CavalryAstro_assets folder into the old one (on a Mac, hold Option while dragging and choose Merge). Your settings are kept elsewhere, in Cavalry's app-data folder, so an update never touches them.",
     "3. Open Scripts > CavalryAstro. No restart needed.",
+    "4. Imagery only: drag the CavalryAstro_plugin folder into the Cavalry window once. It adds the CavalryAstro Reproject filter that the sky imagery uses.",
     "",
     "Star data: HYG Database (CC BY-SA 4.0). Constellation lines and names: d3-celestial (BSD-3-Clause).",
     "CavalryAstro is free software under the GNU GPL v3 or later (see LICENSE); it comes with ABSOLUTELY NO WARRANTY.",
@@ -36,6 +37,7 @@ function packageFiles(dist, version) {
   return [
     { name: "CavalryAstro.js", data: fs.readFileSync(path.join(dist, "CavalryAstro.js")) },
     ...collect(path.join(dist, "CavalryAstro_assets"), "CavalryAstro_assets/", []),
+    ...collect(path.join(dist, "CavalryAstro_plugin"), "CavalryAstro_plugin/", []),
     { name: "LICENSE", data: fs.readFileSync(path.join(ROOT, "LICENSE")) },
     { name: "README.md", data: fs.readFileSync(path.join(ROOT, "README.md")) },
     { name: "THIRD-PARTY-NOTICES.md", data: fs.readFileSync(path.join(ROOT, "THIRD-PARTY-NOTICES.md")) },
