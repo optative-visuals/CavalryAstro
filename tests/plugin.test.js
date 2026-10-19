@@ -55,8 +55,13 @@ test("definitions.json defaults and ranges", () => {
   assert.equal(a.gain.min, 0);
   assert.equal(a.gain.max, 4);
   assert.equal(a.camFov.default, 60);
-  assert.equal(a.camFov.min, 3);
-  assert.equal(a.camFov.max, 150);
+  assert.equal(a.camFov.min, 0.5);
+  assert.equal(a.camFov.max, 220);
+  // The sky shares no range on RA and Dec: RA wraps, and keyframes can pass 360 or go past ±90.
+  assert.equal(a.camRa.min, undefined);
+  assert.equal(a.camRa.max, undefined);
+  assert.equal(a.camDec.min, undefined);
+  assert.equal(a.camDec.max, undefined);
   assert.equal(a.viewScale.default, 1);
   assert.deepEqual(a.viewOffset.default, { x: 0, y: 0 });
   assert.equal(a.camRa.default, 0);

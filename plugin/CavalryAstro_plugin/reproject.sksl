@@ -25,7 +25,9 @@ float relRa(float ra, float ref) { return mod(ra - ref + 180.0, 360.0) - 180.0; 
 
 half4 main(float2 p) {
   // Pixels per unit of planar radius, as AstroSky.scaleOf.
-  float scale = (frameW * 0.5) / (2.0 * tan(camFov * D2R * 0.25));
+  // The fov is clamped to 0.5..220 degrees, as render.js does for the sky's projector.
+  float fov = clamp(camFov, 0.5, 220.0);
+  float scale = (frameW * 0.5) / (2.0 * tan(fov * D2R * 0.25));
   // Beyond the projector's 120 degrees: transparent. The 1e-5 is float32 slack for the boundary.
   float planar = length(p) / scale;
   if (planar > CLAMP_R * (1.0 + 1e-5)) { return half4(0.0); }
