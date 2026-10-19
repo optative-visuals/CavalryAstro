@@ -288,6 +288,39 @@ var AstroScene = (function () {
   function glowOn(s) { var d = userData(s.groupId, SKY_KEY); return !(d && d.glow === false); }
   function saveSky(s, theme, glow) { api.setUserData(s.groupId, SKY_KEY, { v: SKY_VERSION, theme: theme, glow: glow !== false }); }
 
+  // The theme the sky's layers show now, read live, so Controls tweaks count, named `name`. A value that is missing or
+  // not a colour keeps the sky's stored theme. Star mode is mono when every band has one fill (its colour is that fill).
+  // The reveal colours and widths come from the stored theme, as no reveal layer is read here.
+  function readSkyTheme(s, name) {
+    var base = themeOf(s), L = skyLayers(s), out = {}, bands = [];
+    Object.keys(base).forEach(function (k) { out[k] = base[k]; });
+    function hexOr(id, attr, fallback) {
+      if (!id) return fallback;
+      var v = api.get(id, attr);
+      return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
+    }
+    function numOr(id, attr, fallback) {
+      if (!id) return fallback;
+      var n = Number(api.get(id, attr));
+      return isFinite(n) ? n : fallback;
+    }
+    out.background = hexOr(L.background, A.FILL_COLOR_ATTR, base.background);
+    out.lines = hexOr(L.lines, A.STROKE_COLOR_ATTR, base.lines);
+    out.linesWidth = numOr(L.lines, A.STROKE_WIDTH_ATTR, base.linesWidth);
+    out.borders = hexOr(L.borders, A.STROKE_COLOR_ATTR, base.borders);
+    out.bordersWidth = numOr(L.borders, A.STROKE_WIDTH_ATTR, base.bordersWidth);
+    out.names = hexOr(L.names, A.FILL_COLOR_ATTR, base.names);
+    L.bands.forEach(function (id) { bands.push(hexOr(id, A.FILL_COLOR_ATTR, null)); });
+    var mono = bands.length > 0 && bands.every(function (c) { return c !== null && c === bands[0]; });
+    if (mono) { out.starMode = "mono"; out.starColour = bands[0]; }
+    else if (bands.length) out.starMode = "true";
+    if (L.glowLevel) out.glow = numOr(L.glowLevel, A.CAMERA_ARRAY_ATTR + ".1", base.glow * 100) / 100;
+    out.name = name;
+    return AstroStyles.normalise(out);
+  }
+  // Stores a theme as the sky's theme (what Apply and the preview use), keeping the glow switch. Writes no layer.
+  function setSkyTheme(s, theme) { saveSky(s, themeFor(theme), glowOn(s)); }
+
   // The camera's five values, as set by the panel.
   function readCamera(s) {
     function v(i) { return Number(api.get(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i)); }
@@ -436,9 +469,10 @@ var AstroScene = (function () {
 
   // Keys the camera along points (one per frame from startFrame, as AstroFly.path gives them). RA is unwrapped
   // so that no two consecutive keys sit 360 apart: the first key is nearest the camera's centreRa.
-  // Keys already in the range are replaced. Returns { start, end }.
+  // Keys already in the range are replaced. The seed is the camera's RA at startFrame (not at the playhead), so every
+  // caller (flights, Update flight, Drift) unwraps from the same place. Returns { start, end }.
   function flyCamera(s, points, startFrame) {
-    var end = startFrame + points.length - 1, prevRa = readCamera(s).ra;
+    var end = startFrame + points.length - 1, prevRa = readCameraAt(s, startFrame).ra;
     if (!isFinite(prevRa)) prevRa = points[0].ra;
     FLIGHT_ATTRS.forEach(function (attr) {
       (api.getKeyframeTimes(s.cameraId, attr) || []).forEach(function (f) {
@@ -835,6 +869,8 @@ var AstroScene = (function () {
     findSkies: findSkies,
     skyData: skyData,
     skyTheme: themeOf,
+    readSkyTheme: readSkyTheme,
+    setSkyTheme: setSkyTheme,
     compFrameRange: compFrameRange,
     compFps: compFps,
     skyLayers: skyLayers,

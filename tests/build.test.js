@@ -22,6 +22,8 @@ function makeFakeApi() {
     writeToFile: (p, c) => { files[p] = String(c); },
     makeFolder: (p) => { files[p] = files[p] === undefined ? "<dir>" : files[p]; },
     deleteFilePath: (p) => { delete files[p]; },
+    // A folder listing: the full paths of the files directly in dir (the Sky styles folder reads its .json files).
+    listDirectoryPaths: (dir) => Object.keys(files).filter((p) => p.startsWith(dir + "/") && p.slice(dir.length + 1).indexOf("/") < 0),
     Timer: Timer,
     _timers: timers,
     _files: files
@@ -1026,4 +1028,97 @@ test("every control in the panel has a hover tip, the settings popover's include
   controls.forEach((w) => {
     assert.ok(w._setToolTip && String(w._setToolTip[0]).length > 0, "a tip on " + (w._text || w.kind));
   });
+});
+
+// ---- Fix round 1 (Task 12): live theme save, and RA seeded at the flight's start -------------------------
+// The largest RA step between consecutive frames from..to (raw degrees), restoring the playhead afterwards.
+function maxRaStep(api, cam, from, to) {
+  const back = api.getFrame();
+  let prev = null, worst = 0;
+  for (let f = from; f <= to; f++) {
+    api.setFrame(f);
+    const v = Number(api.get(cam, "array.0"));
+    if (prev !== null) worst = Math.max(worst, Math.abs(v - prev));
+    prev = v;
+  }
+  api.setFrame(back);
+  return worst;
+}
+// Links a utility's value to a layer's attribute, as a Controls row does: changing the utility changes the layer.
+function linkedValue(api, layer, attr, value) {
+  const feed = api.create("javaScript", "Feed");
+  api.set(feed, { "array.0": value });
+  api.connect(feed, "array.0", layer, attr, true);
+  return feed;
+}
+
+test("readSkyTheme reads the live lines colour through a link, and is named", () => {
+  const { api, S, sky, layers } = skyFixture();
+  linkedValue(api, layers.lines, "stroke.strokeColor", "#ff8800");
+  const theme = S.readSkyTheme(sky, "Mine");
+  assert.equal(theme.lines, "#ff8800");
+  assert.equal(theme.name, "Mine");
+  assert.equal(theme.borders, S.skyTheme(sky).borders, "a colour not changed keeps the stored theme's");
+});
+
+test("Save as style saves the live lines colour and makes the sky's theme that style", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  linkedValue(api, S.skyLayers(sky).lines, "stroke.strokeColor", "#ff8800");
+  lineEditWithPlaceholder(ui, "Name for a new style").setText("Mine");
+  findButton(ui, "Save as style").onClick();
+  const path = Object.keys(api._files).find((p) => p.endsWith("/Sky styles/Mine.json"));
+  assert.ok(path, "the style file was written to the Sky styles folder");
+  assert.equal(JSON.parse(api._files[path]).lines, "#ff8800", "the saved file has the live colour");
+  assert.equal(S.skyTheme(sky).name, "Mine", "the sky's theme is the saved style");
+  assert.equal(S.skyTheme(sky).lines, "#ff8800");
+});
+
+test("Drift from frame 0 keys no RA step over 10 degrees, though the playhead's RA is about 180 degrees away", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  S.jumpCamera(sky, { ra: 350, dec: 0, fov: 60 });
+  api.keyframe(sky.cameraId, 0, { "array.0": 350 });
+  api.keyframe(sky.cameraId, 50, { "array.0": 10 });
+  api.setFrame(50);
+  dropDownWith(ui, "Pan left").setValue(2);
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(100);
+  findButton(ui, "Drift").onClick();
+  assert.ok(maxRaStep(api, sky.cameraId, 0, 100) < 10, "no step of 10 degrees or more");
+  api.setFrame(0);
+  const start = Number(api.get(sky.cameraId, "array.0"));
+  assert.ok(Math.abs(start - 350) < 1, "the drift starts at RA 350, not at the playhead's RA");
+});
+
+test("Update flight redoes the flight under the playhead with the new Easing, keeping its frames and target", () => {
+  const { api, ui, context } = runPanel();
+  const S = context.AstroScene;
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  const sky = S.findSkies()[0];
+  search(ui, "orion");
+  const results = dropDownWith(ui, "Whole sky");
+  results.setValue(1);
+  results.onValueChanged();
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(100);
+  findButton(ui, "Fly here").onClick();
+  api.setFrame(50);
+  dropDownWith(ui, "Gentle").setValue(1);
+  findButton(ui, "Update flight").onClick();
+  const rec = S.lastFlight(sky);
+  assert.equal(rec.easing, "gentle", "the flight now uses the new easing");
+  assert.equal(rec.start, 0);
+  assert.equal(rec.end, 100);
+  assert.equal(rec.target.label, "Orion");
+  assert.ok(maxRaStep(api, sky.cameraId, 0, 100) < 10, "no RA step of 10 degrees or more");
 });

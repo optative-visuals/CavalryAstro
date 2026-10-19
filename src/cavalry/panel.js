@@ -726,10 +726,10 @@ saveStyleBtn.onClick = guardAction(function () {
     if (!q.showQuestion("Replace style", "Replace the saved style " + existing.name + "?")) { say("Nothing was saved."); return; }
     name = existing.name;
   }
-  var source = AstroScene.skyTheme(sky), theme = {};
-  Object.keys(source).forEach(function (k) { theme[k] = source[k]; });
-  theme.name = name;
+  // The sky's live colours (Controls tweaks included), saved, and then the sky's theme, as Geo's Save as style tags its map.
+  var theme = AstroScene.readSkyTheme(sky, name);
   AstroNet.writeStyleFile(theme);
+  AstroScene.setSkyTheme(sky, theme);
   AstroNet.updateSettings({ skyStyle: name });
   reloadStyleFiles(true);
   refreshThemePicker(name);
