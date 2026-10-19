@@ -307,3 +307,10 @@ test("the +/- squares zoom the view, and a middle-drag zooms too", () => {
   draw.onMouseRelease({ x: 320, y: 100 }, "middle");
   assert.ok(panel.view().fov > before, "a middle-drag down zooms out");
 });
+
+test("viewFovFor is the inverse of frameCamera: the green frame's camera has the fov it was given, to 0.01 degrees", () => {
+  for (const f of [3, 20, 60, 100, 120, 140]) {
+    const view = { ra: 10, dec: 5, fov: P.viewFovFor(f) };
+    assert.ok(Math.abs(P.frameCamera(view).fov - f) < 0.01, "camera fov " + f);
+  }
+});

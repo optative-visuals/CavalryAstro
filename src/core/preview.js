@@ -81,6 +81,12 @@ var AstroPreview = (function () {
     return { ra: v.ra, dec: v.dec, fov: 4 * Math.atan(FRAME_FRACTION * Math.tan(v.fov * DEG / 4)) / DEG };
   }
 
+  // The view's fov whose green frame camera has camFov (degrees): the inverse of frameCamera, so a pick can show
+  // the camera it will fly to exactly.
+  function viewFovFor(camFov) {
+    return 4 * Math.atan(Math.tan(camFov * DEG / 4) / FRAME_FRACTION) / DEG;
+  }
+
   // The green frame in view pixels: FRAME_FRACTION of the width, centred, at the comp's aspect (and no taller
   // than FRAME_FRACTION of the height).
   function frameRect(w, h, aspect) {
@@ -164,7 +170,7 @@ var AstroPreview = (function () {
   return {
     FRAME_FRACTION: FRAME_FRACTION, ZOOM_DRAG_PX: ZOOM_DRAG_PX,
     defaultView: defaultView, toPx: toPx, pixelsPerDegree: pixelsPerDegree,
-    pan: pan, zoomAt: zoomAt, dragZoom: dragZoom, frameCamera: frameCamera, frameRect: frameRect,
+    pan: pan, zoomAt: zoomAt, dragZoom: dragZoom, frameCamera: frameCamera, viewFovFor: viewFovFor, frameRect: frameRect,
     cameraRect: cameraRect, hitDot: hitDot, hitConstellation: hitConstellation, dashes: dashes,
     starsForPreview: starsForPreview
   };

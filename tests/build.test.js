@@ -558,21 +558,37 @@ test("extendComp lengthens the comp to the new end plus 3 seconds and moves the 
   assert.equal(api.getOutFrame(layers.names), 50, "a layer trimmed earlier is left alone");
 });
 
-test("the fly target frames a constellation on its border and a star at fov 20", () => {
+test("the fly target centres a constellation on the spherical mean of its border and fits its border and lines in 85 % of the comp", () => {
   const { S, context } = skyFixture();
   const cons = context.AstroCatalog.decodeConstellations(require("../assets/sky/constellations.json"));
   const ser = cons[consIndex(context, "Ser")];
-  let far = 0;
-  ser.border.forEach((ring) => ring.forEach((p) => {
-    far = Math.max(far, context.AstroSky.angularDistance(ser.centre[0], ser.centre[1], p[0], p[1]));
-  }));
+  const border = [];
+  ser.border.forEach((ring) => ring.forEach((p) => border.push(p)));
+  const mean = context.AstroSky.mid(border);
   const target = S.flyTarget("constellation", consIndex(context, "Ser"));
-  assert.ok(Math.abs(target.fov - Math.min(120, Math.max(8, far * 2 * 1.4))) < 1e-9, "2 x 1.4 x the farthest border point");
-  assert.equal(target.ra, ser.centre[0]);
-  assert.equal(target.dec, ser.centre[1]);
+  assert.ok(Math.abs(target.ra - mean[0]) < 1e-9 && Math.abs(target.dec - mean[1]) < 1e-9, "centre is the border's spherical mean");
+  assert.equal(target.label, "Serpens");
   const star = S.flyTarget("star", 0);
   assert.equal(star.fov, 20);
   assert.equal(star.ra, require("../assets/sky/stars.json").rows[0][0]);
+});
+
+test("the fly target of each of the 88 constellations frames every border point and line vertex inside 1920 x 1080", () => {
+  const { S, context } = skyFixture();
+  const cons = context.AstroCatalog.decodeConstellations(require("../assets/sky/constellations.json"));
+  assert.equal(cons.length, 88);
+  cons.forEach((c, i) => {
+    const t = S.flyTarget("constellation", i);
+    const proj = context.AstroSky.makeProjector({ ra: t.ra, dec: t.dec, fov: t.fov, rotation: 0, projection: 0 }, 1920);
+    const pts = [];
+    c.border.forEach((ring) => ring.forEach((p) => pts.push(p)));
+    (c.lines || []).forEach((line) => line.forEach((p) => pts.push(p)));
+    const out = [0, 0];
+    pts.forEach((p) => {
+      assert.ok(proj(p[0], p[1], out), c.latin + " point in front");
+      assert.ok(Math.abs(out[0]) <= 960 && Math.abs(out[1]) <= 540, c.latin + " at " + out);
+    });
+  });
 });
 
 test("jumpCamera sets the camera's centre and field of view", () => {
@@ -1028,10 +1044,9 @@ test("Jump here puts the camera on the green frame of the picked constellation",
   findButton(ui, "Jump here").onClick();
   const orion = S.skyData().cons.findIndex((c) => c.name === "Orion");
   const target = S.flyTarget("constellation", orion);
-  const frame = context.AstroPreview.frameCamera({ ra: target.ra, dec: target.dec, fov: target.fov });
   const cam = S.readCamera(sky);
-  assert.ok(Math.abs(cam.ra - frame.ra) < 1e-9 && Math.abs(cam.dec - frame.dec) < 1e-9, "the centre is the green frame's");
-  assert.ok(Math.abs(cam.fov - frame.fov) < 1e-9, "the field of view is the green frame's");
+  assert.ok(Math.abs(cam.ra - target.ra) < 1e-9 && Math.abs(cam.dec - target.dec) < 1e-9, "the centre is the fly target's");
+  assert.ok(Math.abs(cam.fov - target.fov) < 0.01, "the green frame's camera has the fly target's field of view");
 });
 
 test("Refresh controls and every press prepare the picked sky's reveals", () => {

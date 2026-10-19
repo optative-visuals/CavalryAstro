@@ -430,7 +430,7 @@ var AstroScene = (function () {
   // A flight keys the Camera's centreRa, centreDec and fov for each frame of its range. Its record (the
   // astroFlights user data on the Camera) lets a later Update flight rebuild the same keys. Ported from Cavalry Geo.
   var FLIGHTS_KEY = "astroFlights", EXTEND_PAD_SECONDS = 3, DEFAULT_FPS = 25;
-  var FRAME_PAD = 1.4, FRAMING_FOV = [8, 120], STAR_FOV = 20;
+  var STAR_FOV = 20;
   var FLIGHT_ATTRS = [0, 1, 2].map(function (i) { return A.CAMERA_ARRAY_ATTR + "." + i; });
 
   // Runs fn with the playhead on frame, then puts the playhead back.
@@ -455,24 +455,30 @@ var AstroScene = (function () {
     setCamera(s, { ra: target.ra, dec: target.dec, fov: target.fov });
   }
 
-  // The fov that holds a constellation's border: twice its farthest border point from its centre, times 1.4.
-  // Some centres lie outside their own border, so the distance is taken from the centre to every ring point.
-  function constellationFov(c) {
-    var far = 0;
-    (c.border || []).forEach(function (ring) {
-      ring.forEach(function (p) { far = Math.max(far, AstroSky.angularDistance(c.centre[0], c.centre[1], p[0], p[1])); });
-    });
-    return clamp(far * 2 * FRAME_PAD, FRAMING_FOV[0], FRAMING_FOV[1]);
+  // The view a constellation is framed in: its centre is the spherical mean of its border points, and its fov is the
+  // smallest that holds every border point and line vertex inside 85 % of the comp's width and height.
+  var FRAME_SHARE = 0.85;
+  function constellationFov(c, compW, compH) {
+    var pts = [];
+    (c.border || []).forEach(function (ring) { ring.forEach(function (p) { pts.push(p); }); });
+    (c.lines || []).forEach(function (line) { line.forEach(function (p) { pts.push(p); }); });
+    return AstroSky.fitFov(pts, c.centre, compW, compH, FRAME_SHARE);
+  }
+  function constellationCentre(c) {
+    var pts = [];
+    (c.border || []).forEach(function (ring) { ring.forEach(function (p) { pts.push(p); }); });
+    return pts.length ? AstroSky.mid(pts) : c.centre;
   }
 
   // A fly target: a constellation (index into the catalogue) or a star (index into the star list).
-  // Returns { kind, index, label, ra, dec, fov }.
+  // Returns { kind, index, label, ra, dec, fov }. A constellation's fov depends on the comp's size.
   function flyTarget(kind, index) {
     var data = skyData();
     if (kind === "constellation") {
       var c = data.cons[index];
       if (!c) throw new Error("No constellation at index " + index);
-      return { kind: kind, index: index, label: c.latin, ra: c.centre[0], dec: c.centre[1], fov: constellationFov(c) };
+      var comp = compSize(), centre = constellationCentre(c);
+      return { kind: kind, index: index, label: c.latin, ra: centre[0], dec: centre[1], fov: constellationFov(c, comp.width, comp.height) };
     }
     if (kind === "star") {
       var st = data.stars;

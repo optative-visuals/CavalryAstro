@@ -254,7 +254,8 @@ var AstroPreviewPanel = (function () {
         setWidth(state.w);
       },
       setView: function (v) {
-        state.view = { ra: AstroSky.wrapRa(v.ra), dec: Math.max(-90, Math.min(90, v.dec)), fov: Math.max(5, Math.min(180, v.fov)) };
+        // A picked constellation's view can be wider than a zoom goes (its green frame is the camera's exact fov), up to the projector's limit.
+        state.view = { ra: AstroSky.wrapRa(v.ra), dec: Math.max(-90, Math.min(90, v.dec)), fov: Math.max(5, Math.min(220, v.fov)) };
         changed();
       },
       view: function () { return state.view; },

@@ -125,3 +125,26 @@ test("a point more than 120 degrees away returns false and is clamped to the 120
 test("unsupported projections are rejected", () => {
   assert.throws(() => S.makeProjector({ ra: 0, dec: 0, fov: 60, projection: 1 }, FRAME_W));
 });
+
+test("fitFov: the smallest fov that holds every point inside the share of the frame, and the projection stays inside the frame", () => {
+  // Points spread east-west and north-south around RA 100, dec 0: the fit must hold them at 85 % of both sides.
+  const pts = [[90, 0], [110, 0], [100, 10], [100, -10]];
+  const centre = [100, 0];
+  const fov = S.fitFov(pts, centre, 1920, 1080, 0.85);
+  const out = [0, 0];
+  const proj = S.makeProjector({ ra: centre[0], dec: centre[1], fov: fov, rotation: 0, projection: 0 }, 1920);
+  pts.forEach((p) => {
+    assert.ok(proj(p[0], p[1], out));
+    assert.ok(Math.abs(out[0]) <= 0.85 * 960 + 1e-6 && Math.abs(out[1]) <= 0.85 * 540 + 1e-6, "inside 85 % at " + p);
+  });
+  // Just tighter than the fit, some point is outside.
+  const tighter = S.makeProjector({ ra: centre[0], dec: centre[1], fov: fov * 0.98, rotation: 0, projection: 0 }, 1920);
+  const outside = pts.some((p) => { tighter(p[0], p[1], out); return Math.abs(out[0]) > 0.85 * 960 || Math.abs(out[1]) > 0.85 * 540; });
+  assert.ok(outside, "the fit is the tightest");
+});
+
+test("mid: the spherical mean of a ring around the pole is the pole, and of two points on the equator the one between", () => {
+  const m = S.mid([[0, 80], [120, 80], [240, 80]]);
+  assert.ok(Math.abs(m[1] - 90) < 1e-9);
+  assert.ok(Math.abs(S.mid([[10, 0], [30, 0]])[0] - 20) < 1e-9);
+});

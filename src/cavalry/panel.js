@@ -359,7 +359,8 @@ function previewFollowPicked() {
   var i = resultPicker.getValue();
   if (i > 0 && results[i - 1]) {
     var r = results[i - 1], target = AstroScene.flyTarget(r.kind, r.index);
-    preview.setView({ ra: target.ra, dec: target.dec, fov: target.fov });
+    // The view's fov is the one whose green frame is the fly target's camera, so the frame is exactly where Fly here goes.
+    preview.setView({ ra: target.ra, dec: target.dec, fov: AstroPreview.viewFovFor(target.fov) });
     picked = { target: target, view: preview.view() };
   } else {
     preview.setView(AstroPreview.defaultView());

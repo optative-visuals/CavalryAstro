@@ -119,6 +119,29 @@ var AstroSky = (function () {
     return scaleOf(cam, frameW) * DEG;
   }
 
+  // The smallest fov (degrees, in [3, 150]) at which every point ([ra, dec]) lies in front of a camera at centre
+  // and inside share (0..1) of a w x h comp on both sides. Bisection: a smaller fov only pushes points outward.
+  // If even 150 does not hold them, 150 is returned.
+  function fitFov(points, centre, w, h, share) {
+    var out = [0, 0], kx = share * w / 2, ky = share * h / 2;
+    function fits(fov) {
+      var project = makeProjector({ ra: centre[0], dec: centre[1], fov: fov, rotation: 0, projection: 0 }, w);
+      for (var i = 0; i < points.length; i++) {
+        if (!project(points[i][0], points[i][1], out)) return false;
+        if (Math.abs(out[0]) > kx || Math.abs(out[1]) > ky) return false;
+      }
+      return true;
+    }
+    var lo = 3, hi = 150;
+    if (!fits(hi)) return hi;
+    if (fits(lo)) return lo;
+    for (var k = 0; k < 60; k++) {
+      var m = (lo + hi) / 2;
+      if (fits(m)) hi = m; else lo = m;
+    }
+    return hi;
+  }
+
   return {
     angularDistance: angularDistance,
     wrapRa: wrapRa,
@@ -126,7 +149,8 @@ var AstroSky = (function () {
     mid: mid,
     makeProjector: makeProjector,
     unproject: unproject,
-    pixelsPerDegree: pixelsPerDegree
+    pixelsPerDegree: pixelsPerDegree,
+    fitFov: fitFov
   };
 })();
 if (typeof module !== "undefined" && module.exports) module.exports = AstroSky;
