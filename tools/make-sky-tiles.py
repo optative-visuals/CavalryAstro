@@ -10,6 +10,13 @@ tiles/source/ and writes, all git-ignored:
 
 Convention: row 0 is Dec +90; col 0 starts at RA 0; RA increases with col.
 
+Memory: reads whole channels (one HALF channel at a time, 1.07 GB for the 32k
+map), then holds three 8-bit L3 planes (1.6 GB) and the half-float L2/L1/L0
+levels (about 0.8 GB). Peak RAM is about 4 GB (estimated from these sizes, not
+measured).
+
+Default tone is "vivid" (the user's pick): middle, then min(1, (v * 2.6) ** 0.75).
+
 Usage (from the repo root, with tools/.venv):
   tools/.venv/Scripts/python.exe tools/make-sky-tiles.py --self-test
   tools/.venv/Scripts/python.exe tools/make-sky-tiles.py [--tone middle]
@@ -50,8 +57,15 @@ TONES = {
     "darker": {"black": 0.0, "exposure": 1.0, "shoulder": 0.85},
     "middle": {"black": 0.0, "exposure": 1.0, "shoulder": 0.565},
     "brighter": {"black": 0.0, "exposure": 1.0, "shoulder": 0.385},
+    # The user's pick: "middle", then out = min(1, (v * 2.6) ** 0.75) on the
+    # sRGB-encoded value v, in float before quantising.
+    "vivid": {"black": 0.0, "exposure": 1.0, "shoulder": 0.565, "gain": 2.6, "gamma": 0.75},
 }
-TILE_TONE = "middle"
+TILE_TONE = "vivid"
+# 99.9th percentile of the source must map to at most this (8-bit). Vivid is
+# allowed to reach 255 because its curve lifts the top 0.1% to full scale.
+P999_CAP = {name: 250 for name in TONES}
+P999_CAP["vivid"] = 255
 
 SAMPLES = (  # name, level, centre RA, centre Dec, width deg, height deg
     ("orion", 3, 83.8, -5.4, 30.0, 30.0),
@@ -163,12 +177,20 @@ def detect_orientation(src, samples=10_000_000, seed=0):
 
 
 # ------------------------------------------------------------------ tone
-def tone_u8(lin, params):
-    """Linear radiance -> 8-bit sRGB. Black point, exposure, soft exponential shoulder."""
+def tone_float(lin, params):
+    """Linear radiance -> sRGB-encoded 0..1 (float). Black point, exposure, soft shoulder,
+    then an optional gain/gamma curve on the encoded value."""
     a = np.maximum(np.asarray(lin, np.float32) - params["black"], 0.0) * params["exposure"]
     out = 1.0 - np.exp(-a / params["shoulder"])
     enc = np.where(out <= 0.0031308, 12.92 * out, 1.055 * np.power(out, 1 / 2.4) - 0.055)
-    return np.clip(np.rint(enc * 255.0), 0, 255).astype(np.uint8)
+    if "gain" in params:
+        enc = np.minimum(1.0, np.power(enc * params["gain"], params["gamma"]))
+    return enc.astype(np.float32)
+
+
+def tone_u8(lin, params):
+    """Tone to 8 bits. The curve is applied in float; quantising is the last step."""
+    return np.clip(np.rint(tone_float(lin, params) * 255.0), 0, 255).astype(np.uint8)
 
 
 # ------------------------------------------------------------------ tiles
@@ -242,7 +264,7 @@ def t_tone_monotonic_and_capped():
         assert y.dtype == np.uint8, "not uint8"
         assert np.all(np.diff(y.astype(np.int16)) >= 0), f"{name}: not monotonic"
         cap = int(tone_u8(np.array([p999], np.float32), params)[0])
-        assert cap <= 250, f"{name}: 99.9th percentile maps to {cap}"
+        assert cap <= P999_CAP[name], f"{name}: 99.9th percentile maps to {cap}"
 
 
 def t_levels_match_spec():
@@ -274,7 +296,7 @@ def self_test():
     results = []
     _check(results, "a: convention places a star at RA 88.79 Dec 7.41", t_convention_places_star)
     _check(results, "b: orientation detector recovers a known mapping", t_orientation_detects_known_mapping)
-    _check(results, "c: tone is monotonic; 99.9th percentile <= 250", t_tone_monotonic_and_capped)
+    _check(results, "c: tone is monotonic; 99.9th percentile <= per-tone cap", t_tone_monotonic_and_capped)
     _check(results, "d: level table and tile paths match the spec", t_levels_match_spec)
     _check(results, "e: tiles are RGB JPEG at 1024 px", t_tile_is_rgb_jpeg)
     ok = all(r[1] for r in results)
@@ -332,8 +354,10 @@ def check_highlights(sample_flat):
     for name, params in TONES.items():
         cap = int(tone_u8(np.array([p999], np.float32), params)[0])
         report[name] = cap
-        if cap > 250:
-            raise RuntimeError(f"tone '{name}': source 99.9th percentile ({p999:.4g}) maps to {cap} > 250")
+        if cap > P999_CAP[name]:
+            raise RuntimeError(
+                f"tone '{name}': source 99.9th percentile ({p999:.4g}) maps to {cap} > {P999_CAP[name]}"
+            )
     return p999, report
 
 
@@ -366,8 +390,6 @@ def build(source, tile_tone):
             f.close()
         S3 = np.frombuffer(raw, dtype=np.float16).reshape(LEVELS[3][2], LEVELS[3][1])
         del raw
-        if S3.shape != (LEVELS[3][2], LEVELS[3][1]):
-            raise RuntimeError(f"channel {cname} shape {S3.shape}, want {(LEVELS[3][2], LEVELS[3][1])}")
         if orientation is None:
             flat = S3.reshape(-1)
             sample = flat[rng.integers(0, flat.size, size=10_000_000)].astype(np.float32)
@@ -443,7 +465,13 @@ def build(source, tile_tone):
         ],
         "tile": TILE,
         "jpeg_quality": JPEG_QUALITY,
-        "tone": {"tiles": tile_tone, "settings": TONES},
+        "tone": {
+            "tiles": tile_tone,
+            "chosen": tile_tone,
+            "gain": TONES[tile_tone].get("gain"),
+            "gamma": TONES[tile_tone].get("gamma"),
+            "settings": TONES,
+        },
         "samples": sample_files,
     }
     (out_root / "nasa-dsm").mkdir(parents=True, exist_ok=True)
