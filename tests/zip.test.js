@@ -1,6 +1,9 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const zlib = require("node:zlib");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 const { crc32, createZip } = require("../tools/ziplib.js");
 
 // Minimal reader: walks the central directory and inflates each entry.
@@ -50,4 +53,28 @@ test("createZip round-trips files, keeps folder paths, uses forward slashes", ()
 test("createZip rejects backslashes and absolute paths", () => {
   assert.throws(() => createZip([{ name: "a\\b.js", data: Buffer.from("x") }]), /forward slashes/);
   assert.throws(() => createZip([{ name: "/abs.js", data: Buffer.from("x") }]), /relative/);
+});
+
+// The release zip: the plugin, its sky data, the licence, the README and the guide, and nothing else.
+test("the release zip holds the plugin, its data and the docs, and no private or dev files", () => {
+  const { packageFiles } = require("../tools/package.js");
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), "astro-dist-"));
+  try {
+    fs.writeFileSync(path.join(dist, "CavalryAstro.js"), "// panel");
+    fs.mkdirSync(path.join(dist, "CavalryAstro_assets", "sky"), { recursive: true });
+    fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "stars.json"), "{}");
+    fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "constellations.json"), "{}");
+    const names = packageFiles(dist, "0.1.0").map((f) => f.name).sort();
+    assert.deepEqual(names, [
+      "CavalryAstro.js",
+      "CavalryAstro_assets/sky/constellations.json",
+      "CavalryAstro_assets/sky/stars.json",
+      "INSTALL.txt",
+      "LICENSE.txt",
+      "README.md",
+      "docs/guide.md"
+    ]);
+  } finally {
+    fs.rmSync(dist, { recursive: true, force: true });
+  }
 });

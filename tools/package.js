@@ -37,6 +37,8 @@ function packageFiles(dist, version) {
     { name: "CavalryAstro.js", data: fs.readFileSync(path.join(dist, "CavalryAstro.js")) },
     ...collect(path.join(dist, "CavalryAstro_assets"), "CavalryAstro_assets/", []),
     { name: "LICENSE.txt", data: fs.readFileSync(path.join(ROOT, "LICENSE.txt")) },
+    { name: "README.md", data: fs.readFileSync(path.join(ROOT, "README.md")) },
+    { name: "docs/guide.md", data: fs.readFileSync(path.join(ROOT, "docs", "guide.md")) },
     { name: "INSTALL.txt", data: Buffer.from(installText(version), "utf8") }
   ];
 }
