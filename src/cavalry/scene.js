@@ -172,7 +172,7 @@ var AstroScene = (function () {
 
   function namesData(cons, nameCase) {
     return { items: cons.map(function (c) {
-      return [nameCase === "upper" ? String(c.name).toUpperCase() : String(c.name), c.centre[0], c.centre[1]];
+      return [nameCase === "upper" ? String(c.latin).toUpperCase() : String(c.latin), c.centre[0], c.centre[1]];
     }) };
   }
 
@@ -472,7 +472,7 @@ var AstroScene = (function () {
     if (kind === "constellation") {
       var c = data.cons[index];
       if (!c) throw new Error("No constellation at index " + index);
-      return { kind: kind, index: index, label: c.name, ra: c.centre[0], dec: c.centre[1], fov: constellationFov(c) };
+      return { kind: kind, index: index, label: c.latin, ra: c.centre[0], dec: c.centre[1], fov: constellationFov(c) };
     }
     if (kind === "star") {
       var st = data.stars;
@@ -763,7 +763,7 @@ var AstroScene = (function () {
         api.connect(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + p[1], pos, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.TITLE_INPUTS, p[0]), true);
       });
       var title = api.create(A.TEXT_LAYER_TYPE, "Title");
-      setOne(title, A.TEXT_ATTR, caseName(c.name, theme.nameCase));
+      setOne(title, A.TEXT_ATTR, caseName(c.latin, theme.nameCase));
       applyStyle(title, { fill: theme.title });
       api.connect(pos, A.DRIVER_OUTPUT_ATTR, title, "position", true);
       api.connect(titleId, A.DRIVER_OUTPUT_ATTR, title, "opacity", true);
@@ -788,8 +788,8 @@ var AstroScene = (function () {
     var o = opts || {}, chosen = chosenParts(parts);
     var first = Math.round(pickNumber(start, 0)), len = Math.max(1, Math.round(pickNumber(frames, 1)));
     var number = highestNumber(s) + 1;
-    var groupId = api.create("group", "Reveal " + number + ": " + c.name);
-    setRecord(groupId, { v: REVEAL_VERSION, con: c.id, name: c.name, parts: chosen, number: number });
+    var groupId = api.create("group", "Reveal " + number + ": " + c.latin);
+    setRecord(groupId, { v: REVEAL_VERSION, con: c.id, name: c.latin, parts: chosen, number: number });
     api.parent(groupId, s.groupId);
     var amountId = utilityLayer(groupId, "Reveal amount", E.revealAmountExpression({ category: "revealAmount" }), E.REVEAL_INPUTS, {
       spotlight: pickNumber(o.spotlight, DEFAULT_SPOTLIGHT), titleMode: pickNumber(o.titleMode, 0),

@@ -61,7 +61,7 @@ var AstroCatalog = (function () {
       var c = cons[i];
       var m = matchFields([c.name, c.latin, c.genitive, c.id], q);
       if (!m) continue;
-      var hit = { kind: "constellation", index: i, label: c.name, ra: c.centre[0], dec: c.centre[1] };
+      var hit = { kind: "constellation", index: i, label: c.latin, ra: c.centre[0], dec: c.centre[1] };
       (m === 2 ? exactCons : prefixCons).push(hit);
     }
     for (j = 0; j < stars.count; j++) {

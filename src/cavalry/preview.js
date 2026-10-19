@@ -95,7 +95,7 @@ var AstroPreviewPanel = (function () {
       state.sky.constellations.forEach(function (c) {
         var q = onView(proj, c.centre[0], c.centre[1], out);
         if (!q) return;
-        path.addText(String(c.name).replace(/</g, ""), 10, q[0], Y(q[1]));
+        path.addText(String(c.latin).replace(/</g, ""), 10, q[0], Y(q[1]));
         n++;
       });
       draw.addPath(path.toObject(), { color: state.colours.names });

@@ -375,7 +375,7 @@ function pickConstellation(i) {
   results.forEach(function (r, k) { if (at < 0 && r.kind === "constellation" && r.index === i) at = k; });
   if (at < 0) {
     var c = skyData().cons[i];
-    results = [{ kind: "constellation", index: i, label: c.name, ra: c.centre[0], dec: c.centre[1] }];
+    results = [{ kind: "constellation", index: i, label: c.latin, ra: c.centre[0], dec: c.centre[1] }];
     refreshResultPicker();
     at = 0;
   }
@@ -844,7 +844,7 @@ var changeRevealBtn = AstroStyle.button("Change reveal");
 function revealRowsFor(q) {
   var d = skyData(), out = [];
   if (!q) {
-    d.cons.forEach(function (c, i) { out.push({ index: i, name: c.name }); });
+    d.cons.forEach(function (c, i) { out.push({ index: i, name: c.latin }); });
     out.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
     return out;
   }
@@ -896,15 +896,22 @@ revealFind.onValueCommitted = guardWork(function () {
   if (revealFind.getText().trim() !== lastRevealFind) runRevealFind();
 });
 // The first pick sets Start and Frames from its flight, or from the playhead for one second.
-// (guard() passes no arguments, so the selection is handed on inside it.)
+// (guard() passes no arguments, so the selection is handed on inside it.) A pick of the last flight's constellation
+// re-opens Start and Frames on that flight's reveal. Any other pick leaves them where they are: a reveal has moved them on.
+// The first pick with no flight to it opens Start at the playhead and Frames at the comp's fps, once.
+var revealOpened = false;
 revealList.onSelectionChanged = function (uuids) {
   guard(function () {
     var rows = pickedRows(uuids || []);
     if (!rows.length) return;
     var last = newSkySelected() ? null : AstroScene.lastFlight(currentSky());
-    var t = AstroReveal.revealTiming(last, rows[0].index, playhead(), AstroScene.compFps());
+    var target = last && last.target && last.target.kind === "constellation" ? last.target.index : null;
+    var hit = target === null ? null : rows.filter(function (r) { return r.index === target; })[0];
+    if (!hit && revealOpened) return;
+    var t = AstroReveal.revealTiming(last, hit ? hit.index : rows[0].index, playhead(), AstroScene.compFps());
     revealStartField.setValue(t.start);
     revealFramesField.setValue(t.frames);
+    revealOpened = true;
   })();
 };
 revealBtn.onClick = guardAction(function () {

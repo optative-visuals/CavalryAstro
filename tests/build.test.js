@@ -1187,7 +1187,7 @@ test("the Reveal list holds all 88 constellations, alphabetical, when Find is em
   assert.equal(names.length, context.AstroScene.skyData().cons.length);
 });
 
-test("the Reveal page: picking Orion after Fly here to Orion over 0 to 100 sets Start 60 and Frames 40; picking Cross  sets Start to the playhead and Frames to the fps", () => {
+test("picking the flown-to constellation after Fly here to Orion over 0 to 100 opens Start 60 and Frames 40", () => {
   const { api, ui, context } = runPanel();
   pickNewSky(ui);
   findButton(ui, "Create sky here").onClick();
@@ -1201,30 +1201,89 @@ test("the Reveal page: picking Orion after Fly here to Orion over 0 to 100 sets 
   findButton(ui, "Fly here").onClick();
   api.setFrame(7);
   const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
-  pickConstellations(ui, ["Orion"]);
+  pickConstellations(ui, ["Crux", "Orion"]);
   assert.equal(start.getValue(), 60, "the reveal starts 40% into the flight");
   assert.equal(frames.getValue(), 40, "and lasts to the flight's end");
-  pickConstellations(ui, ["Cross"]);
-  assert.equal(start.getValue(), 7, "a constellation not flown to starts at the playhead");
-  assert.equal(frames.getValue(), 25, "for one second: the comp's fps");
 });
 
-test("Reveal selected with Orion and Cross  picked makes two reveals, Cross  first (list order), the second starting where the first ended", () => {
+test("a pick that is not the flown-to constellation leaves Start and Frames where they are", () => {
+  const { api, ui, context } = runPanel();
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  search(ui, "orion");
+  const results = dropDownWith(ui, "Whole sky");
+  results.setValue(1);
+  results.onValueChanged();
+  const [from, to] = numericFields(ui);
+  from.setValue(0);
+  to.setValue(100);
+  findButton(ui, "Fly here").onClick();
+  const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
+  pickConstellations(ui, ["Orion"]);
+  assert.equal(start.getValue(), 60, "the flown-to pick opens Start 60");
+  assert.equal(frames.getValue(), 40, "and Frames 40");
+  pickConstellations(ui, ["Crux"]);
+  assert.equal(start.getValue(), 60, "picking Crux leaves Start where it was");
+  assert.equal(frames.getValue(), 40, "and Frames");
+});
+
+test("Reveal Orion with no flight, then pick Crux: Start stays where the reveal moved it on to", () => {
+  const { api, ui, context } = runPanel();
+  pickNewSky(ui);
+  findButton(ui, "Create sky here").onClick();
+  api.setFrame(7);
+  const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
+  pickConstellations(ui, ["Orion"]);
+  assert.equal(start.getValue(), 7, "first open: the playhead");
+  assert.equal(frames.getValue(), 25, "and one second");
+  findButton(ui, "Reveal selected").onClick();
+  assert.equal(start.getValue(), 32, "Start moved on to where the reveal ended");
+  pickConstellations(ui, ["Crux"]);
+  assert.equal(start.getValue(), 32, "picking Crux keeps the moved-on Start");
+  assert.equal(frames.getValue(), 25, "and Frames");
+});
+
+test("Reveal selected with Orion and Crux picked makes two reveals, Crux first (list order), the second starting where the first ended", () => {
   const { api, ui, context } = runPanel();
   const S = context.AstroScene;
   pickNewSky(ui);
   findButton(ui, "Create sky here").onClick();
   const sky = S.findSkies()[0];
-  pickConstellations(ui, ["Orion", "Cross"]);
+  pickConstellations(ui, ["Orion", "Crux"]);
   const start = tipped(ui, context, "reveal.start"), frames = tipped(ui, context, "reveal.frames");
   start.setValue(0);
   frames.setValue(20);
   findButton(ui, "Reveal selected").onClick();
   const reveals = S.findReveals(sky);
-  assert.equal(reveals.map((r) => r.name).join(" | "), "Reveal 1: Cross | Reveal 2: Orion");
+  assert.equal(reveals.map((r) => r.name).join(" | "), "Reveal 1: Crux | Reveal 2: Orion");
   assert.equal(api.getKeyframeTimes(reveals[0].amountId, "array.0").join(","), "0,20");
-  assert.equal(api.getKeyframeTimes(reveals[1].amountId, "array.0").join(","), "20,40", "starts where Cross  ended");
+  assert.equal(api.getKeyframeTimes(reveals[1].amountId, "array.0").join(","), "20,40", "starts where Crux ended");
   assert.equal(start.getValue(), 40, "Start moves on to where the last reveal ended");
+});
+
+test("the Latin name is shown: reveal titles are ORION and CANIS MAJOR in Mono (upper case), Canis Major in Realistic", () => {
+  const { api, context } = runPanel();
+  const S = context.AstroScene;
+  const cam = { ra: 83.8, dec: 0, fov: 60, rotation: 0, projection: 0 };
+  S.createSky("Sky 1", cam, "Mono");
+  const sky = S.findSkies()[0];
+  const idx = (latin) => S.skyData().cons.findIndex((c) => c.latin === latin);
+  const orion = S.createReveal(sky, idx("Orion"), ["title"], 0, 25, { titleMode: 0 });
+  const canis = S.createReveal(sky, idx("Canis Major"), ["title"], 30, 25, { titleMode: 0 });
+  const titleOf = (r) => api.get(api.getChildren(r.groupId).filter((id) => api.getNiceName(id) === "Title")[0], "text");
+  assert.equal(api.getNiceName(canis.groupId), "Reveal 2: Canis Major");
+  assert.equal(titleOf(orion), "ORION");
+  assert.equal(titleOf(canis), "CANIS MAJOR");
+  S.createSky("Sky 2", cam, "Realistic");
+  const real = S.findSkies()[1];
+  const plain = S.createReveal(real, idx("Canis Major"), ["title"], 0, 25, { titleMode: 0 });
+  assert.equal(titleOf(plain), "Canis Major", "Realistic writes names in title case");
+});
+
+test("searching great dog finds Canis Major, shown by its Latin name", () => {
+  const { ui } = runPanel();
+  search(ui, "great dog");
+  assert.equal(dropDownWith(ui, "Whole sky")._entries[1], "Canis Major");
 });
 
 test("Change reveal with nothing selected says so in the status line", () => {

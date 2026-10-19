@@ -140,6 +140,14 @@ function buildStars(hygText) {
   return { stars, unknownBayer, noCi };
 }
 
+// d3-celestial spells some IAU names as the older Latin forms; the panel shows the IAU spelling (Canis Major, not
+// Canis Maior). Only the displayed Latin name changes: the English name, genitive and id stay as d3-celestial has them.
+const LATIN_FIXES = { "Canis Maior": "Canis Major", "Ursa Maior": "Ursa Major", "Bootes": "Boötes" };
+// d3-celestial also has spaces other than the plain one (U+2005 in "Canis Maior", "Great Dog"): they are made plain,
+// so that a search for "great dog" matches the phrase.
+function plainSpaces(s) { return String(s).replace(/\s+/g, " "); }
+function latinName(la) { const k = plainSpaces(la); return LATIN_FIXES[k] || k; }
+
 function buildConstellations(d3) {
   const cons = d3.constellations.features, lines = d3.lines.features, bounds = d3.bounds.features;
   const ids = [...new Set(cons.map((f) => f.id))].sort();
@@ -161,7 +169,7 @@ function buildConstellations(d3) {
     const centre = p.display
       ? [round(wrapRa(p.display[0]), 4), round(p.display[1], 4)]
       : sphericalMean(border[0]);
-    return { id, name: p.en, latin: p.la, genitive: p.gen, centre, lineCoords, border, parts: feats.length };
+    return { id, name: plainSpaces(p.en), latin: latinName(p.la), genitive: plainSpaces(p.gen), centre, lineCoords, border, parts: feats.length };
   });
 }
 
