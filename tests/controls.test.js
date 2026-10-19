@@ -12,10 +12,11 @@ const SKY_ROWS = [
   "Names · Hide", "Names · Colour", "Names · Size"
 ];
 const REVEAL_ROWS = (n) => [
-  "Amount %", "Spotlight", "Lines colour", "Lines width", "Border colour",
+  "Amount %", "Spotlight", "Lines colour", "Lines width", "Border colour", "Border width",
   "Title mode (0 Header · 1 Follows constellation)",
   "Title corner (0 top-left · 1 top-centre · 2 top-right · 3 bottom-left · 4 bottom-centre · 5 bottom-right)",
-  "Title size", "Labels size"
+  "Title margin", "Title offset", "Title size", "Title colour",
+  "Labels size", "Labels colour"
 ].map((l) => "Reveal " + n + " · " + l);
 
 function sky(extra) {
@@ -91,6 +92,29 @@ test("reveal rows drive the amount, the lines, the border with its glow, the tit
   assert.equal(row(p, "Reveal 1 · Title size").layer, "title1");
   assert.equal(row(p, "Reveal 1 · Title size").attr, "fontSize");
   assert.equal(row(p, "Reveal 1 · Labels size").attr, "generator.array.7");
+});
+
+test("the reveal rows the spec asks for: title and labels colours, border width, title margin and offset", () => {
+  const p = C.plan(sky({ reveals: [reveal(1)] }));
+  assert.equal(row(p, "Reveal 1 · Title colour").layer, "title1");
+  assert.equal(row(p, "Reveal 1 · Title colour").attr, "material.materialColor");
+  assert.equal(row(p, "Reveal 1 · Labels colour").layer, "rlab1");
+  assert.equal(row(p, "Reveal 1 · Labels colour").attr, "material.materialColor");
+  const width = row(p, "Reveal 1 · Border width");
+  assert.equal(width.kind, "value");
+  assert.deepEqual(width.link.map((t) => t.layer), ["rb1", "rgl1"]);
+  assert.ok(width.link.every((t) => t.attr === "stroke.width"));
+  assert.equal(row(p, "Reveal 1 · Title margin").attr, "array.4", "the margin is the reveal's margin input");
+  assert.equal(row(p, "Reveal 1 · Title margin").layer, "amt1");
+  assert.equal(row(p, "Reveal 1 · Title offset").attr, "array.5", "the title offset is the reveal's offsetY input");
+});
+
+test("the title's margin and offset rows drop with the title; the border width drops with the rings", () => {
+  const p = C.plan(sky({ reveals: [reveal(1, { title: null, border: null, borderGlow: null })] }));
+  const names = labels(p).filter((l) => l.indexOf("Reveal 1") === 0);
+  ["Title margin", "Title offset", "Title colour", "Title size", "Border width", "Border colour"].forEach((part) => {
+    assert.ok(names.every((l) => l.indexOf(part) < 0), part + " is not drawn, so it has no row");
+  });
 });
 
 test("a reveal part that is not drawn drops its rows; the amount rows always stay", () => {

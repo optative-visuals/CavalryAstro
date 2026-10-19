@@ -17,7 +17,7 @@ var AstroControls = (function () {
   var CORNERS = "0 top-left · 1 top-centre · 2 top-right · 3 bottom-left · 4 bottom-centre · 5 bottom-right";
   // The attributes a values input may drive on each kind of member: the glue reads their link state
   // (incoming connection, keyframes, geoLinks-style record) into each member's state.
-  var STATE_ATTRS = { stars: [DARKNESS, SIZE], ring: [STROKE] };
+  var STATE_ATTRS = { stars: [DARKNESS, SIZE], ring: [STROKE, WIDTH] };
   var GROUPS = ["main", "reveal"];
 
   // What a layer's record says once a values input has been connected to it.
@@ -108,13 +108,21 @@ var AstroControls = (function () {
         direct(r.lines, WIDTH, n + "Lines width");
       }
       if (ring.length) value(k + "border", "color", n + "Border colour", ring, STROKE);
-      // Title mode and corner place the title, so they are offered only while it is drawn.
+      if (ring.length) valueTargets(k + "borderWidth", "double", n + "Border width", targetsOf(ring, WIDTH), { hardMin: 0 });
+      // Title mode, corner, margin and offset place the title, so they are offered only while it is drawn.
+      // The offset moves a Follows-constellation title; the margin insets a Header title from its corner.
       if (r.title) {
         direct(r.amount, REVEAL("titleMode"), n + "Title mode (0 Header · 1 Follows constellation)", { hardMin: 0, hardMax: 1, step: 1 });
         direct(r.amount, REVEAL("corner"), n + "Title corner (" + CORNERS + ")", { hardMin: 0, hardMax: 5, step: 1 });
+        direct(r.amount, REVEAL("margin"), n + "Title margin", { hardMin: 0 });
+        direct(r.amount, REVEAL("offsetY"), n + "Title offset");
         direct(r.title, TITLE_SIZE, n + "Title size");
+        direct(r.title, FILL, n + "Title colour");
       }
-      if (r.labels) direct(r.labels, TEXT_SIZE, n + "Labels size");
+      if (r.labels) {
+        direct(r.labels, TEXT_SIZE, n + "Labels size");
+        direct(r.labels, FILL, n + "Labels colour");
+      }
       notes = "";
     });
     return out;
