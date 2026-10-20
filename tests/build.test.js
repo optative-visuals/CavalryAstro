@@ -1697,8 +1697,8 @@ test("a build for a static Orion camera makes the source comp, the View group, a
   assert.equal(kinds.filter((t) => t === "cavalryAstro::reproject").length, 1);
 });
 
-test("the imagery sits directly above the topmost star layer (bands or glow)", () => {
-  const f = skyFixture();
+test("the first build orders the sky bottom-up: bands and glow, photo, borders, lines, with names and reveals still above", () => {
+  const f = revealFixture();
   const plan = f.S.planImagery(f.sky);
   putTiles(f.api, plan);
   buildImagery(f, plan);
@@ -1708,8 +1708,11 @@ test("the imagery sits directly above the topmost star layer (bands or glow)", (
   const starsTop = L.bands.concat([L.glow]).reduce((a, b) => (at(b) > at(a) ? b : a));
   L.bands.concat([L.glow]).forEach((id) => assert.ok(at(im.groupId) > at(id), "above " + f.api.getNiceName(id)));
   assert.equal(at(im.groupId), at(starsTop) + 1, "directly above the topmost star layer");
+  assert.equal(at(L.borders), at(im.groupId) + 1, "the borders directly above the photo");
+  assert.equal(at(L.lines), at(L.borders) + 1, "the lines directly above the borders");
+  assert.ok(at(L.names) > at(L.lines), "names above the lines");
+  f.S.findReveals(f.sky).forEach((r) => assert.ok(at(r.groupId) > at(L.lines), "reveal " + r.name + " above the lines"));
 });
-
 test("a credit added before the first build stays above the photo", () => {
   const f = skyFixture();
   f.S.addImageryCredit(f.sky);
@@ -1722,20 +1725,19 @@ test("a credit added before the first build stays above the photo", () => {
   assert.ok(kids.indexOf(credit) < kids.indexOf(im.groupId), "the credit is above the photo");
 });
 
-test("a user layer placed just above the lines stays above them after the first build", () => {
+test("a user layer brought to the front stays above the lines, borders and photo after the first build", () => {
   const f = skyFixture();
   const L0 = f.S.skyLayers(f.sky), user = f.api.create("basicShape", "My shape");
   f.api.parent(user, f.sky.groupId);
-  const layers = f.api._layers;
-  layers.splice(layers.indexOf(user), 1);
-  layers.splice(layers.indexOf(L0.lines) + 1, 0, user);
+  f.api.select([user]); f.api.bringToFront(); f.api.select([]);
   const plan = f.S.planImagery(f.sky);
   putTiles(f.api, plan);
   buildImagery(f, plan);
-  const kids = f.api.getChildren(f.sky.groupId);
+  const im = f.S.findImagery(f.sky), kids = f.api.getChildren(f.sky.groupId);
   assert.ok(kids.indexOf(user) < kids.indexOf(L0.lines), "still above the lines");
+  assert.ok(kids.indexOf(user) < kids.indexOf(L0.borders), "still above the borders");
+  assert.ok(kids.indexOf(user) < kids.indexOf(im.groupId), "still above the photo");
 });
-
 test("a throwing bringToFront or moveBackward still leaves a finished photo", () => {
   const f = skyFixture();
   f.api.bringToFront = () => { throw new Error("no bring"); };

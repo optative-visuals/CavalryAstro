@@ -1196,16 +1196,30 @@ var AstroScene = (function () {
     } catch (x) { /* already gone */ }
   }
 
-  // Puts the photo directly above the topmost drawn star layer (bands or glow), as Geo does. Nothing else in the sky group
-  // moves: a credit, a user layer or a line above the stars stays above the photo. Best-effort: a throw here never fails the
-  // build, because the finished photo is kept either way.
+  // Puts the photo directly above the topmost drawn star layer (bands or glow), as Geo does, then the constellation
+  // borders and lines directly above it (photo, borders, lines), but only those that sit below the photo. Names, reveals,
+  // the credit and user layers are not moved. Best-effort: a throw here never fails the build, because the finished photo
+  // is kept either way.
   function stackImagery(s, groupId) {
     try {
       var L = skyLayers(s), stars = L.bands.concat([L.glow]).filter(function (id) { return !!id; });
       var kids = api.getChildren(s.groupId), anchor = null;
       kids.forEach(function (id) { if (!anchor && stars.indexOf(id) >= 0) anchor = id; });
       if (anchor) placeAbove(groupId, anchor);
+      if (!anchor) return;
+      var photoAt = kids.indexOf(groupId);
+      function belowPhoto(id) { return !!id && kids.indexOf(id) > photoAt; }
+      if (belowPhoto(L.borders)) raiseAbove(L.borders, groupId);
+      if (belowPhoto(L.lines)) raiseAbove(L.lines, L.borders || groupId);
     } catch (e) { /* best-effort: the photo is finished either way */ }
+  }
+
+  // Moves id to the top of its siblings (with the selection put back), then steps it down to directly above other.
+  function raiseAbove(id, other) {
+    var previous = [];
+    try { previous = api.getSelection() || []; } catch (e) { previous = []; }
+    try { api.select([id]); api.bringToFront(); } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
+    placeAbove(id, other);
   }
 
   // Puts id directly above other (in the same parent) by stepping id down the stack; the other layers keep their order.
