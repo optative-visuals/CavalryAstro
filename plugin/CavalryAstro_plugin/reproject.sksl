@@ -78,6 +78,8 @@ bool inComp(float2 s) {
 // Whether a source point's sky position lies within the projector's 120 degrees (cos c >= cos 120° = -0.5).
 // Inverts the plate carree mapping of sourcePoint: RA relative to the camera and Dec from the view's scale and offset.
 bool withinProjector(float2 s) {
+  // A non-positive view scale maps nothing: treat the tap as invalid rather than divide by zero.
+  if (viewScale <= 0.0) { return false; }
   float d = (s.x - viewOffset.x) / viewScale * D2R;
   float dec = (s.y - viewOffset.y) / viewScale * D2R;
   float cosC = sin(dec) * sin(camDec * D2R) + cos(dec) * cos(camDec * D2R) * cos(d);

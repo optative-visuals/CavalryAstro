@@ -47,10 +47,19 @@ var AstroReproject = (function () {
     // containment and step one more 1/8 octave down if the rounding pushes an edge out.
     var scale = Math.pow(2, Math.floor(8 * Math.log(rawScale) / Math.LN2) / 8);
     var decMid = (dec0 + dec1) / 2;
-    var offset;
+    var position, offset;
     for (;;) {
-      offset = [SOURCE_PX / 2, Math.round(SOURCE_PX / 2 - decMid * scale)];
-      var fits = halfRa * scale <= SOURCE_PX / 2 &&
+      // The View group's position: whole source pixels. The filter's offset is derived from it, so the photo and
+      // the filter's mapping use the same numbers (the View's X carries the camera's RA, as the driver does).
+      var offset0Raw = SOURCE_PX / 2;
+      var offset1Raw = SOURCE_PX / 2 - decMid * scale;
+      position = [
+        Math.round(offset0Raw - SOURCE_PX / 2 - scale * cam.ra),
+        Math.round(offset1Raw - SOURCE_PX / 2)
+      ];
+      offset = [position[0] + SOURCE_PX / 2 + scale * cam.ra, position[1] + SOURCE_PX / 2];
+      // The box must stay inside the comp; the margin absorbs the half-pixel rounding.
+      var fits = offset[0] - halfRa * scale >= 0 && offset[0] + halfRa * scale <= SOURCE_PX &&
         offset[1] + dec0 * scale >= 0 && offset[1] + dec1 * scale <= SOURCE_PX;
       if (fits) break;
       scale = Math.pow(2, Math.log(scale) / Math.LN2 - 1 / 8);
@@ -62,6 +71,7 @@ var AstroReproject = (function () {
       dec1: dec1,
       scale: scale,
       rawScale: rawScale,
+      position: position,
       offset: offset
     };
   }
@@ -75,10 +85,22 @@ var AstroReproject = (function () {
     return [d * view.scale + view.offset[0], radec[1] * view.scale + view.offset[1]];
   }
 
-  // The 16 source points the shader averages for output pixel (x, y): a 4×4 grid over the pixel's footprint, whose
+  // Whether a source point is usable as a tap: inside the comp, and its sky point within the projector's 120 degrees
+  // (cos c >= -0.5). Mirrors withinProjector and inComp in the shader. A non-positive view scale is invalid.
+  function tapValid(cam, view, s) {
+    if (!(view.scale > 0)) return false;
+    if (s[0] < 0 || s[0] > SOURCE_PX || s[1] < 0 || s[1] > SOURCE_PX) return false;
+    var d = (s[0] - view.offset[0]) / view.scale * DEG;
+    var dec = (s[1] - view.offset[1]) / view.scale * DEG;
+    var cosC = Math.sin(dec) * Math.sin(cam.dec * DEG) + Math.cos(dec) * Math.cos(cam.dec * DEG) * Math.cos(d);
+    return cosC >= -0.5 - 1e-5;
+  }
+
+  // The source points the shader averages for output pixel (x, y): a 4×4 grid over the pixel's footprint, whose
   // edges are the source points of the pixel's right and upper neighbours. Mirrors the shader's tap layout (i outer,
-  // j inner). Returns the single source point when a neighbour lies beyond the projector's 120 degrees (the shader
-  // falls back to one tap there), and null when the pixel itself lies beyond them.
+  // j inner). Taps the shader drops (outside the comp, or beyond 120 degrees) are dropped here too, so fewer than 16
+  // points come back near the edges. Returns the single source point when a neighbour lies beyond the projector's
+  // 120 degrees (the shader falls back to one tap there), and null when the pixel itself lies beyond them.
   function footprintTaps(cam, frameW, view, x, y) {
     var s0 = sourcePoint(cam, frameW, view, x, y);
     if (!s0) return null;
@@ -92,7 +114,8 @@ var AstroReproject = (function () {
       for (var j = 0; j < 4; j++) {
         var fi = (i + 0.5) / 4 - 0.5;
         var fj = (j + 0.5) / 4 - 0.5;
-        taps.push([s0[0] + dx[0] * fi + dy[0] * fj, s0[1] + dx[1] * fi + dy[1] * fj]);
+        var t = [s0[0] + dx[0] * fi + dy[0] * fj, s0[1] + dx[1] * fi + dy[1] * fj];
+        if (tapValid(cam, view, t)) taps.push(t);
       }
     }
     return taps;

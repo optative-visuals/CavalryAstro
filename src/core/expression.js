@@ -133,11 +133,11 @@ var AstroExpression = (function () {
   // The camera read from the inputs, then normalised as the render does (AstroSky.safeCam: projection 0, fov clamped,
   // non-finite values guarded), so a bad camera gives finite values rather than throwing. Defines _c.
   var IMAGERY_CAM = "var _c = AstroSky.safeCam({ra: _i0, dec: _i1, fov: _i2, rotation: _i3, projection: _i4});\n";
-  // The View's results from AstroReproject.viewFor. Position: the camera's RA (unwrapped, as the tiles' copies are) and the
-  // box's Dec middle, both scaled, so a tile at its degrees lands where tileLocal puts it; scale; and the filter's view scale
-  // and view offset (uncentred, as the shader reads them).
+  // The View's results from AstroReproject.viewFor. Position: whole source pixels, the same numbers the filter's offset is
+  // derived from (so the photo and the filter's mapping agree); scale; and the filter's view scale and view offset
+  // (uncentred, as the shader reads them).
   var IMAGERY_VIEW_RESULTS = {
-    position: "[-_v.scale * _i0, -_v.scale * (_v.dec0 + _v.dec1) / 2];",
+    position: "[_v.position[0], _v.position[1]];",
     scale: "[_v.scale, _v.scale];",
     viewScale: "_v.scale;",
     viewOffset: "[_v.offset[0], _v.offset[1]];"

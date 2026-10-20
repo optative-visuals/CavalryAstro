@@ -159,11 +159,13 @@ test("viewFor's scale is a 1/8-octave power of two, at most the raw scale", () =
   }
 });
 
-test("viewFor's offsets are whole source pixels", () => {
+test("viewFor's position is whole source pixels, and offset is derived from it", () => {
   for (const cam of FOV_CAMS) {
     const view = R.viewFor(cam, W, H);
-    assert.ok(Number.isInteger(view.offset[0]), "offset x for fov " + cam.fov);
-    assert.ok(Number.isInteger(view.offset[1]), "offset y for fov " + cam.fov);
+    assert.ok(Number.isInteger(view.position[0]), "position x for fov " + cam.fov);
+    assert.ok(Number.isInteger(view.position[1]), "position y for fov " + cam.fov);
+    assert.ok(Math.abs(view.offset[0] - (view.position[0] + 2052 + view.scale * cam.ra)) < 1e-9, "offset x for fov " + cam.fov);
+    assert.ok(Math.abs(view.offset[1] - (view.position[1] + 2052)) < 1e-9, "offset y for fov " + cam.fov);
   }
 });
 
@@ -187,10 +189,10 @@ test("cameras 0.01 deg apart in RA at the same fov share the quantised scale, of
   const a = R.viewFor({ ra: 84, dec: 0, fov: 62.5, rotation: 0, projection: 0 }, W, H);
   const b = R.viewFor({ ra: 84.01, dec: 0, fov: 62.5, rotation: 0, projection: 0 }, W, H);
   assert.equal(a.scale, b.scale, "same scale");
-  for (let k = 0; k < 2; k++) {
-    const d = b.offset[k] - a.offset[k];
-    assert.ok(Math.abs(d - Math.round(d)) < 1e-9, "offset " + k + " differs by whole pixels: " + d);
-  }
+  assert.equal(a.offset[1], b.offset[1], "same Dec offset");
+  const dPos = b.position[0] - a.position[0];
+  assert.ok(Number.isInteger(dPos), "position steps in whole pixels: " + dPos);
+  assert.ok(Math.abs((b.offset[0] - a.offset[0]) - (dPos + a.scale * 0.01)) < 1e-6, "offset follows the RA shift");
 });
 
 test("footprintTaps returns 16 points centred on sourcePoint, within half the pixel footprint", () => {
@@ -226,4 +228,20 @@ test("footprintTaps falls back to the single source point beyond the projector's
   const taps = R.footprintTaps(cam, W, view, x, 0);
   assert.equal(taps.length, 1);
   assert.equal(R.footprintTaps(cam, W, view, 3000, 0), null);
+});
+
+test("at camera Dec 7.3 the View position puts Betelgeuse and its tile where the filter samples them, within 1e-6", () => {
+  const cam = { ra: 84, dec: 7.3, fov: 62.5, rotation: 0, projection: 0 };
+  const view = R.viewFor(cam, W, H);
+  const [ra, dec] = STARS.Betelgeuse;
+  const p = R.sourcePoint(cam, W, view, ...pixelOf(cam, ra, dec));
+  // The View group: a sky point at its degrees sits at degrees × scale + position; the filter adds the 2052 centre.
+  assert.ok(Math.abs((p[0] - 2052) - (view.position[0] + ra * view.scale)) < 1e-6, "star x");
+  assert.ok(Math.abs((p[1] - 2052) - (view.position[1] + dec * view.scale)) < 1e-6, "star y");
+  const tile = I.tileOf(3, ra, dec);
+  const box = I.tileBox(3, tile.row, tile.col);
+  const t = R.tileLocal(3, tile.row, tile.col, view, cam);
+  const midRa = (box.ra0 + box.ra1) / 2, midDec = (box.dec0 + box.dec1) / 2;
+  assert.ok(Math.abs((t.x - 2052) - (view.position[0] + midRa * view.scale)) < 1e-6, "tile x");
+  assert.ok(Math.abs((t.y - 2052) - (view.position[1] + midDec * view.scale)) < 1e-6, "tile y");
 });

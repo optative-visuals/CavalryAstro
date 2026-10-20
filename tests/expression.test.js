@@ -88,3 +88,12 @@ test("the input lists match the design", () => {
   assert.deepEqual(E.LINE_INPUTS.slice(7), [["draw", 1]]);
   assert.deepEqual(E.TEXT_INPUTS.slice(7), [["textSize", 18], ["dx", 0], ["dy", 0]]);
 });
+
+test("the View position driver evaluates to viewFor().position at an off-centre camera", () => {
+  const R = require("../src/core/reproject.js");
+  const cam = { ra: 84, dec: 7.3, fov: 62.5, rotation: 0, projection: 0 };
+  const ctx = vm.createContext({ camRa: 84, camDec: 7.3, camFov: 62.5, camRotation: 0, camProjection: 0 });
+  const src = E.imageryViewExpression(buildRuntimeSource("reproject"), "position", 1920, 1080, {});
+  const got = vm.runInContext(src, ctx);
+  assert.deepEqual([...got], R.viewFor(cam, 1920, 1080).position);
+});
