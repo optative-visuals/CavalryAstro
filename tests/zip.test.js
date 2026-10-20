@@ -6,6 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { crc32, createZip } = require("../tools/ziplib.js");
 const { copyPlugin } = require("../tools/buildlib.js");
+const VERSION = require("../package.json").version;
 
 // Minimal reader: walks the central directory and inflates each entry.
 function readZip(buf) {
@@ -66,7 +67,7 @@ test("the release zip holds the plugin, its data and the docs, and no private or
     fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "stars.json"), "{}");
     fs.writeFileSync(path.join(dist, "CavalryAstro_assets", "sky", "constellations.json"), "{}");
     copyPlugin(dist);
-    const names = packageFiles(dist, "0.1.0").map((f) => f.name).sort();
+    const names = packageFiles(dist, VERSION).map((f) => f.name).sort();
     assert.deepEqual(names, [
       "CavalryAstro.js",
       "CavalryAstro_assets/sky/constellations.json",
@@ -98,14 +99,14 @@ test("package-imagery zips a two-tile fixture under CavalryAstro_assets/imagery/
     fs.mkdirSync(path.join(nasa, "L0"), { recursive: true });
     fs.writeFileSync(path.join(nasa, "L0", "0_0.jpg"), "a");
     fs.writeFileSync(path.join(nasa, "L0", "0_1.jpg"), "bb");
-    const names = imageryFiles(nasa, "0.1.0").map((f) => f.name).sort();
+    const names = imageryFiles(nasa, VERSION).map((f) => f.name).sort();
     assert.deepEqual(names, [
       "CavalryAstro_assets/imagery/nasa-dsm/L0/0_0.jpg",
       "CavalryAstro_assets/imagery/nasa-dsm/L0/0_1.jpg",
       "IMAGERY-README.txt"
     ]);
-    const zipPath = writeImageryZip(nasa, path.join(root, "dist"), "0.1.0");
-    assert.equal(path.basename(zipPath), "CavalryAstro-imagery-v0.1.0.zip");
+    const zipPath = writeImageryZip(nasa, path.join(root, "dist"), VERSION);
+    assert.equal(path.basename(zipPath), "CavalryAstro-imagery-v" + VERSION + ".zip");
     const entries = readZip(fs.readFileSync(zipPath));
     assert.equal(entries["CavalryAstro_assets/imagery/nasa-dsm/L0/0_1.jpg"].toString("utf8"), "bb");
     assert.match(entries["IMAGERY-README.txt"].toString("utf8"), /NASA\/Goddard Space Flight Center Scientific Visualization Studio/);
