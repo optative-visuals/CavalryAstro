@@ -3,13 +3,14 @@
 Everything the panel does, section by section. New here? Start with the
 [quick start](../README.md#quick-start) in the README.
 
-The panel's sections, **Sky**, **Stars** and **Reveal**, are tabs along the top. The **⚙** button at the
+The panel's sections, **Sky**, **Stars**, **Reveal** and **Imagery**, are tabs along the top. The **⚙** button at the
 right end of that row opens **Settings**. Each section's controls sit in shaded panels. Hover any control
 for a short tip about what it does.
 
 - [Sky](#sky)
 - [Stars](#stars)
 - [Reveal](#reveal)
+- [Imagery](#imagery)
 - [Controls](#controls)
 - [Styles](#styles)
 - [Settings (⚙)](#settings-)
@@ -87,6 +88,42 @@ its title appears and its brightest stars can be labelled.
 Each reveal is a group named for its number and constellation, for example **Reveal 1: Orion**, inside its
 sky. Its settings are in the sky's **Reveal controls** (see [Controls](#controls)).
 
+## Imagery
+
+Imagery puts a photograph of the sky behind the drawn stars: NASA's Deep Star Maps, bent onto your camera so
+its stars line up with the drawn ones. The photo is read from files on your computer, so nothing is
+downloaded while you work.
+
+It needs two things, set up once:
+
+1. **The plugin.** Drag the **CavalryAstro_plugin** folder from the download into the Cavalry window. It adds
+   the **CavalryAstro Reproject** filter that bends the photo.
+2. **The imagery pack.** Download the **CavalryAstro-imagery** zip from the
+   [Releases page](https://github.com/optative-visuals/CavalryAstro/releases/latest), unzip it, and merge its
+   **CavalryAstro_assets** folder into the one in your Scripts folder (Help → Show Scripts Folder). On a Mac,
+   hold Option while dragging and choose Merge.
+
+Then, on the **Imagery** tab:
+
+- **Build imagery:** with a sky picked, press **Build imagery**. Cavalry asks first, with how many tiles the
+  flight needs, then builds them in steps under the progress bar. A tile missing from the pack is skipped and
+  counted in the status line. Press **Cancel** to stop: the part-built photo is taken down, and any older photo
+  stays as it was.
+- **Rebuilding:** after you change the flight, press **Build imagery** again. The new photo replaces the old
+  one, and the Opacity, Brightness and Softness you set are kept.
+- **Layer order:** the photo sits above the drawn stars and below the constellation lines, borders, names and
+  reveals. To put the drawn stars over the photo, drag the photo's group, **Imagery: NASA Deep Star Maps**,
+  below the star layers in the Scene Window. The panel never moves it back.
+- **Controls:** once the photo exists, the sky's **Sky controls** hold three rows after **Background**:
+  **Imagery · Opacity** (0 to 100), **Imagery · Hide**, **Imagery · Brightness** (0 to 4, the filter's gain), and
+  **Imagery · Softness** (0 to 3).
+- **Softness** smooths the photo's finest stars so they don't twinkle as the camera moves; 0 is sharpest.
+- **Add attribution:** puts the credit **NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC** in the bottom left of the
+  sky. Press it again and there is still one credit. NASA's images are public domain, but please keep the credit.
+
+Sky darkness and styles don't change the photo; they change only the drawn stars and lines. A reveal's
+Spotlight dims the photo evenly, as it dims the sky.
+
 ## Controls
 
 Each sky gets two components in the Scene Window: **<sky name> Sky controls**, and, once the sky has
@@ -94,8 +131,8 @@ reveals, **<sky name> Reveal controls**. They hold the settings you tweak withou
 Change a value and the sky updates straight away.
 
 - **Sky controls** holds the camera (**Centre RA**, **Centre Dec**, **Field of view**, **Rotation**), the
-  stars (**Sky darkness**, **Size** and **Glow**), the **Background** colour, and each line set's **Hide**,
-  **Colour** and **Width**. The names have their own **Hide**, **Colour** and **Size**.
+  stars (**Sky darkness**, **Size** and **Glow**), the **Background** colour, the photo's **Imagery · Opacity**,
+  **Hide**, **Brightness** and **Softness** (once the photo exists), and each line set's **Hide**, **Colour** and **Width**. The names have their own **Hide**, **Colour** and **Size**.
 - **Reveal controls** holds each reveal in its own block, numbered to match its group. Each block has
   **Amount %**, **Spotlight**, the lines' colour and width, the border colour and, when the title is shown,
   its mode, corner and size. Labels have a size too.
@@ -133,7 +170,12 @@ The **⚙** button opens the settings, a popover under the button. Press outside
 
 ## Known limits
 
-- **No imagery in v0.1.** Real imagery of the sky is coming in v0.2.
+- **One imagery source.** The **Imagery** tab offers NASA Deep Star Maps only, and it needs the plugin and the
+  imagery pack (see [Imagery](#imagery)).
+- **The photo is softer near a celestial pole.** Close to the north or south celestial pole the photo's pixels
+  are stretched, so it looks softer when the camera points there.
+- **Wide comps aren't fully covered.** In v0.2 the photo is fitted into a 4104 px square, so a comp wider than
+  4104 px is not fully covered by the photo.
 - **No place and time in v0.1.** The sky is not yet set for a place on Earth or a time. That comes in
   v0.3.
 - **No Moon or planets in v0.1.** They come in v0.4.

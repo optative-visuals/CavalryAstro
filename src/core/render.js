@@ -21,16 +21,6 @@ var AstroRender = (function () {
     return (v === null || v === undefined || !isFinite(n)) ? fallback : n;
   }
 
-  // The camera as the projector needs it. A projection other than stereographic is treated as 0, and the fov is
-  // clamped, so a bad input draws a plausible view instead of throwing inside the layer.
-  function safeCam(cam) {
-    var c = cam || {};
-    var fov = finite(c.fov, 60);
-    if (fov < 0.5) fov = 0.5;
-    if (fov > 220) fov = 220;
-    return { ra: finite(c.ra, 0), dec: finite(c.dec, 0), fov: fov, rotation: finite(c.rotation, 0), projection: 0 };
-  }
-
   function safeFrameW(frameW) {
     var w = Number(frameW);
     return w > 0 && isFinite(w) ? w : DEFAULT_FRAME_W;
@@ -53,7 +43,7 @@ var AstroRender = (function () {
 
   // Projects a [ra, dec] point. Returns true when it is in front of the camera.
   function projectorFor(cam, frameW) {
-    return AstroSky.makeProjector(safeCam(cam), safeFrameW(frameW));
+    return AstroSky.makeProjector(AstroSky.safeCam(cam), safeFrameW(frameW));
   }
 
   // Unit vector of an [ra, dec] point, and back again. Working on vectors keeps the RA wrap out of the arithmetic.

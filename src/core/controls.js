@@ -27,6 +27,7 @@ var AstroControls = (function () {
   function targetsOf(members, attr) { return members.map(function (m) { return { m: m, attr: attr }; }); }
 
   // model: { valuesId, camera, background, bands: [{id, state}], glow: {id, state}, glowLevel, lines, borders, names,
+  //          imagery: { opacity, group, filter } or null,
   //          reveals: [{ id, number, name, amount, lines, border: {id, state}, borderGlow: {id, state}, labels, title }] }.
   // Direct members are layer ids; value members are { id, state }. A missing member is null or left out.
   function plan(model) {
@@ -88,6 +89,15 @@ var AstroControls = (function () {
     }
     if (model.glowLevel) direct(model.glowLevel, GLOW_LEVEL, "Stars" + SEP + "Glow", { hardMin: 0, hardMax: 100 });
     if (model.background) direct(model.background, FILL, "Background" + SEP + "Colour");
+    // The photo, while it exists: Opacity (the opacity utility's first input), Hide (its group), Brightness (the Reproject
+    // filter's gain) and Softness (its softness).
+    var im = model.imagery;
+    if (im) {
+      if (im.opacity) direct(im.opacity, "array.0", "Imagery" + SEP + "Opacity", { hardMin: 0, hardMax: 100 });
+      if (im.group) direct(im.group, "hidden", "Imagery" + SEP + "Hide");
+      if (im.filter) direct(im.filter, "gain", "Imagery" + SEP + "Brightness", { hardMin: 0, hardMax: 4 });
+      if (im.filter) direct(im.filter, "softness", "Imagery" + SEP + "Softness", { hardMin: 0, hardMax: 3 });
+    }
     lineRows(model.lines, "Lines");
     lineRows(model.borders, "Borders");
     if (model.names) {

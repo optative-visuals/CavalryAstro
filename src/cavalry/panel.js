@@ -1,8 +1,8 @@
 // The CavalryAstro panel. Ported from Cavalry Geo's panel.js (its Map tab and settings), keeping the sky features
 // only: the Sky tab (sky list, Create sky here, search, the preview, Jump / Fly / Drift, Style and Refresh controls),
-// the Stars tab (darkness, stars, the whole-sky ticks), the Reveal tab (pick constellations, reveal, change) and the
-// ⚙ settings. It runs when the script loads.
-var ASTRO_TABS = ["Sky", "Stars", "Reveal"];
+// the Stars tab (darkness, stars, the whole-sky ticks), the Reveal tab (pick constellations, reveal, change), the
+// Imagery tab (build the NASA photo, add its credit) and the ⚙ settings. It runs when the script loads.
+var ASTRO_TABS = ["Sky", "Stars", "Reveal", "Imagery"];
 var NEW_SKY = "New sky", WHOLE_SKY = "Whole sky";
 var DEFAULT_THEME = "Realistic";
 var SEARCH_LIMIT = 20, SEARCH_RETRY_MS = 1500;
@@ -88,6 +88,17 @@ function guardAction(fn, keepSelection, allowNested) {
     keepGroupsCollapsed(before);
     nudgeRedraw();
   };
+}
+// A scene action (one that changes the sky) is refused while an imagery build runs: its steps are changing the sky's layers.
+// Cancel and the build's own progress stay allowed. The status line says what to do.
+var IMAGERY_BUSY_TEXT = "Imagery is being built. Press Cancel or wait for it to finish.";
+function refuseDuringImagery() {
+  if (!imageryJob) return false;
+  say(IMAGERY_BUSY_TEXT);
+  return true;
+}
+function guardScene(fn) {
+  return guardAction(function () { if (!refuseDuringImagery()) fn(); });
 }
 function column(items) {
   var v = new ui.VLayout();
@@ -267,7 +278,8 @@ function syncCompSize() {
 // It never moves the preview's view, so a press always works on the view the user sees. Never throws.
 function syncToCanvas() {
   try {
-    if (busy) return;
+    // While an action runs, or an imagery build is stepping (its job is still set), the panel is left as it is.
+    if (busy || imageryJob) return;
     syncedAt = Date.now();
     followActiveComp(false, true);
     syncCompSize();
@@ -641,7 +653,7 @@ refreshSkiesBtn.onClick = guardAction(function () {
 });
 
 // Makes a sky at the green frame, and selects it. It is named Sky 1, Sky 2... unless a name is typed.
-createHereBtn.onClick = guardAction(function () {
+createHereBtn.onClick = guardScene(function () {
   var f = AstroPreview.frameCamera(preview.view()), typed = nameField.getText().trim();
   var name = typed ? uniqueSkyName(typed) : numberedSkyName();
   var made = AstroScene.createSky(name, { ra: f.ra, dec: f.dec, fov: f.fov, rotation: 0, projection: 0 }, pickedTheme().name);
@@ -649,7 +661,7 @@ createHereBtn.onClick = guardAction(function () {
   say("Created sky \"" + name + "\" at the preview frame. Its controls are in \"" + name + " Sky controls\" in the Scene Window.");
 });
 
-jumpBtn.onClick = guardAction(function () {
+jumpBtn.onClick = guardScene(function () {
   var sky = currentSky(), t = frameTarget();
   AstroScene.jumpCamera(sky, t.cam);
   say("Camera jumped to " + t.label + " (field of view " + t.cam.fov.toFixed(1) + "°).");
@@ -657,7 +669,7 @@ jumpBtn.onClick = guardAction(function () {
 });
 
 // Flies from the Start frame to the End frame, from the camera as it is at Start, to the green frame.
-flyBtn.onClick = guardAction(function () {
+flyBtn.onClick = guardScene(function () {
   var plan = planMove("flight"), from = plan.from, to = plan.to, t = frameTarget();
   var extended = extendForMove(plan, "flight", "Fly here");
   if (extended === null) return;
@@ -672,7 +684,7 @@ flyBtn.onClick = guardAction(function () {
 });
 
 // Redoes the flight under the playhead with the current Easing and Zoom-out, keeping its frames and destination.
-updateFlightBtn.onClick = guardAction(function () {
+updateFlightBtn.onClick = guardScene(function () {
   var sky = currentSky(), cr = AstroScene.compFrameRange();
   var rec = AstroScene.flightAt(sky, Math.max(cr.start, Math.min(cr.end, playhead())));
   if (!rec) throw new Error("Put the playhead inside a flight made with Fly here first.");
@@ -685,7 +697,7 @@ updateFlightBtn.onClick = guardAction(function () {
 });
 
 // A small move from the camera as it is at Start, over Start to End: push in, pull out or pan.
-driftBtn.onClick = guardAction(function () {
+driftBtn.onClick = guardScene(function () {
   var plan = planMove("drift"), from = plan.from, to = plan.to, sky = plan.sky;
   var extended = extendForMove(plan, "drift", "Drift");
   if (extended === null) return;
@@ -718,7 +730,7 @@ themePicker.onValueChanged = guard(function () {
   stylePreview = pickedTheme();
   previewShowSky();
 });
-applyStyleBtn.onClick = guardAction(function () {
+applyStyleBtn.onClick = guardScene(function () {
   var sky = currentSky(), theme = pickedTheme(), r = AstroScene.applyTheme(sky, theme);
   previewShowSky();
   var left = r.skipped ? " " + r.skipped + " animated or connected colour" + (r.skipped === 1 ? " was" : "s were") + " left alone." : "";
@@ -787,14 +799,14 @@ function showStarValues() {
   } finally { refreshingStars = false; }
 }
 darknessSlider.onValueChanged = guard(function () {
-  if (!refreshingStars) AstroScene.setDarkness(currentSky(), darknessSlider.getValue());
+  if (!refreshingStars && !refuseDuringImagery()) AstroScene.setDarkness(currentSky(), darknessSlider.getValue());
 });
 starSizeField.onValueChanged = guard(function () {
-  if (!refreshingStars) AstroScene.setStarSize(currentSky(), starSizeField.getValue());
+  if (!refreshingStars && !refuseDuringImagery()) AstroScene.setStarSize(currentSky(), starSizeField.getValue());
 });
 // A switch's change is an action: it catches the panel up with the canvas first, as the buttons do.
 function starSwitch(toggle, write) {
-  toggle.onValueChanged = function (on) { guardAction(function () { write(currentSky(), on); })(); };
+  toggle.onValueChanged = function (on) { guardScene(function () { write(currentSky(), on); })(); };
 }
 starSwitch(colourToggle, function (sky, on) { AstroScene.setStarColours(sky, on); });
 starSwitch(glowToggle, function (sky, on) { AstroScene.setGlow(sky, on); });
@@ -924,7 +936,7 @@ revealList.onSelectionChanged = function (uuids) {
     revealOpened = true;
   })();
 };
-revealBtn.onClick = guardAction(function () {
+revealBtn.onClick = guardScene(function () {
   var sky = currentSky(), rows = pickedRows(revealList.getSelection());
   if (!rows.length) throw new Error("Pick one or more constellations in the list first.");
   var start = Math.round(Number(revealStartField.getValue()) || 0);
@@ -940,7 +952,7 @@ revealBtn.onClick = guardAction(function () {
   say("Made " + names.length + (names.length === 1 ? " reveal" : " reveals") + " in " + sky.name + ": " + names.join(", ") +
     " (frames " + first + " to " + start + ").");
 });
-changeRevealBtn.onClick = guardAction(function () {
+changeRevealBtn.onClick = guardScene(function () {
   var found = revealOfSelection(currentSelection() || []);
   if (!found) { say("Select a reveal group (or a layer inside it) in the Scene Window first."); return; }
   AstroScene.changeReveal(found.groupId, revealParts(), { titleMode: titleStylePicker.getValue() });
@@ -959,6 +971,76 @@ var revealColumn = column([
     row(startLabel, revealStartBox, framesLabel, revealFramesBox),
     row(revealBtn, changeRevealBtn),
     AstroStyle.note("Picked constellations reveal one after another: each starts where the last one ended.")
+  ])
+]);
+
+// ---- The Imagery tab ---------------------------------------------------------------------------------------------
+// The NASA Deep Star Maps photo of the picked sky (AstroScene). Build asks once, with the tile count, then builds in
+// timer steps under a progress bar; Cancel stops it. Add attribution puts the credit on the sky.
+var imagerySource = new ui.DropDown();
+imagerySource.addEntry("NASA Deep Star Maps");
+// Says why imagery can't be built yet (the plugin or the pack, in AstroScene's words); hidden when nothing is missing.
+var imageryNote = AstroStyle.note("");
+var imageryBuildBtn = AstroStyle.primaryButton("Build imagery");
+var imageryCancelBtn = AstroStyle.button("Cancel");
+var imageryAttrBtn = AstroStyle.button("Add attribution");
+var imageryProgress = new ui.ProgressBar();
+var imageryJob = null; // the running build ({ cancel }), while one runs
+
+function refreshImageryNote() {
+  var missing = !AstroScene.reprojectAvailable() ? AstroScene.REPROJECT_MISSING
+    : !AstroScene.imageryPackAvailable().ok ? AstroScene.PACK_MISSING : "";
+  imageryNote.setText(missing);
+  if (typeof imageryNote.setHidden === "function") imageryNote.setHidden(!missing);
+}
+function onImageryProgress(p) {
+  imageryProgress.setMaximum(Math.max(1, p.total));
+  imageryProgress.setValue(p.built);
+  if (p.phase === "discard") say("Cancelling — removing the partly built imagery…");
+  else if (p.phase === "cleanup") say("Removing the old imagery…");
+  else say("Building imagery: " + p.built + " / " + p.total + " tiles…");
+}
+function onImageryDone(r) {
+  imageryJob = null;
+  refreshImageryNote();
+  if (r.cancelled) say("Cancelled — no imagery was built.");
+  else if (!r.ok) say("Error: " + r.error);
+  else say(r.message);
+}
+imageryBuildBtn.onClick = guardAction(function () {
+  if (imageryJob) throw new Error("Imagery is already being built — press Cancel to stop.");
+  var sky = currentSky();
+  if (!AstroScene.reprojectAvailable()) { refreshImageryNote(); say(AstroScene.REPROJECT_MISSING); return; }
+  if (!AstroScene.imageryPackAvailable().ok) { refreshImageryNote(); say(AstroScene.PACK_MISSING); return; }
+  var plan = AstroScene.planImagery(sky);
+  var question = "This needs " + plan.count + " imagery tiles for " + sky.name + "." + (plan.warn ? " " + plan.warn : "") + "\n\nBuild now?";
+  var dialog = questionDialog();
+  if (dialog && !dialog.showQuestion("Build imagery", question)) { say("Nothing was built."); return; }
+  imageryProgress.setValue(0);
+  imageryJob = AstroScene.beginImageryBuild(sky, plan, onImageryProgress, onImageryDone);
+  say("Building imagery…");
+});
+imageryCancelBtn.onClick = guardAction(function () {
+  if (!imageryJob) throw new Error("Nothing is being built.");
+  var stopped = imageryJob.cancel();
+  say(stopped ? "Cancelling — removing the partly built imagery…" : "The new imagery is already built — finishing removing the old imagery…");
+}, false, true);
+imageryAttrBtn.onClick = guardAction(function () {
+  var sky = currentSky();
+  AstroScene.addImageryCredit(sky);
+  say("Added the imagery credit to " + sky.name + ": " + AstroScene.IMAGERY_CREDIT + ".");
+});
+var imageryColumn = column([
+  AstroStyle.panel([
+    AstroStyle.heading("Source"),
+    imagerySource,
+    imageryNote
+  ]),
+  AstroStyle.panel([
+    AstroStyle.heading("Build"),
+    row(imageryBuildBtn, imageryCancelBtn),
+    imageryProgress,
+    imageryAttrBtn
   ])
 ]);
 
@@ -1013,7 +1095,12 @@ var TIP_TARGETS = [
   [revealStartField, "reveal.start"],
   [revealFramesField, "reveal.frames"],
   [revealBtn, "reveal.reveal"],
-  [changeRevealBtn, "reveal.change"]
+  [changeRevealBtn, "reveal.change"],
+  [imagerySource, "imagery.source"],
+  [imageryBuildBtn, "imagery.build"],
+  [imageryCancelBtn, "imagery.cancel"],
+  [imageryAttrBtn, "imagery.attribution"],
+  [imageryProgress, "imagery.progress"]
 ];
 TIP_TARGETS.forEach(function (t) { AstroStyle.tip(t[0], AstroTips.text(t[1])); });
 
@@ -1024,6 +1111,7 @@ function showTab(name) {
   if (i < 0) return;
   tabBar.select(name);
   tabPages.setPage(i);
+  if (name === "Imagery") guard(refreshImageryNote)();
 }
 
 // ---- Following the active composition -------------------------------------------------------------------
@@ -1076,7 +1164,7 @@ function buildUi() {
   tabPages = AstroStyle.pageStack(AstroStyle.PAGE_BACKGROUND);
   pageNames.forEach(function (name) {
     tabPages.add(name === "Sky" ? skyColumn : name === "Stars" ? starsColumn : name === "Reveal" ? revealColumn :
-      name === "Settings" ? settingsColumn : column([]));
+      name === "Imagery" ? imageryColumn : name === "Settings" ? settingsColumn : column([]));
   });
   tabPages.finish();
   tabBar = AstroStyle.tabBar(ASTRO_TABS, function (name) { showTab(name); });
@@ -1103,6 +1191,7 @@ function buildUi() {
   ui.onResize = fitPreview;
   fitPreview();
   guard(function () { syncCompSize(); refreshSkies(); })();
+  guard(refreshImageryNote)();
   followedComp = activeCompId();
   try { if (typeof ui.addCallbackObject === "function") ui.addCallbackObject(new CompFollower()); } catch (e) { /* an older Cavalry: the Refresh button still works */ }
   try { AstroUpdateCheck.run(say); } catch (e) { /* the update check never gets in the way */ }

@@ -126,7 +126,44 @@ var AstroExpression = (function () {
     return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(GLOW_LEVEL_INPUTS) + "_i0 * _i1 / 100;\n";
   }
 
+  // ---- Imagery (Task 5). Utilities that read the Camera's five values, and the runtime (ASTRO_REPROJECT_SRC). ----
+  var IMAGERY_CAMERA_INPUTS = [["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["camProjection", 0]];
+  // The photo's opacity (0..100) and the spotlight's visible share (0..100) of it.
+  var IMAGERY_OPACITY_INPUTS = [["opacity", 100], ["spotVisible", 100]];
+  // The camera read from the inputs, then normalised as the render does (AstroSky.safeCam: projection 0, fov clamped,
+  // non-finite values guarded), so a bad camera gives finite values rather than throwing. Defines _c.
+  var IMAGERY_CAM = "var _c = AstroSky.safeCam({ra: _i0, dec: _i1, fov: _i2, rotation: _i3, projection: _i4});\n";
+  // The View's results from AstroReproject.viewFor. Position: whole source pixels, the same numbers the filter's offset is
+  // derived from (so the photo and the filter's mapping agree); scale; and the filter's view scale and view offset
+  // (uncentred, as the shader reads them).
+  var IMAGERY_VIEW_RESULTS = {
+    position: "[_v.position[0], _v.position[1]];",
+    scale: "[_v.scale, _v.scale];",
+    viewScale: "_v.scale;",
+    viewOffset: "[_v.offset[0], _v.offset[1]];"
+  };
+  function imageryViewExpression(runtimeSrc, which, frameW, frameH, meta) {
+    if (!Object.prototype.hasOwnProperty.call(IMAGERY_VIEW_RESULTS, which)) throw new Error("Unknown imagery view driver: " + which);
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
+      IMAGERY_CAM + "var _v = AstroReproject.viewFor(_c, " + Number(frameW) + ", " + Number(frameH) + ");\n" + IMAGERY_VIEW_RESULTS[which] + "\n";
+  }
+  // A level's drawn opacity (0..100) at the camera (AstroImagery.levelVisibleOpacity, Geo's hide rule), with the
+  // highest level actually built baked in as maxPlannedL.
+  function imageryLevelExpression(runtimeSrc, L, frameW, maxPlannedL, meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
+      IMAGERY_CAM + "AstroImagery.levelVisibleOpacity(" + Number(L) + ", _c, " + Number(frameW) + ", " + Number(maxPlannedL) + ");\n";
+  }
+  // The photo's opacity: its opacity input times the spotlight's visible share, over 100.
+  function imageryOpacityExpression(meta) {
+    return writeTag("ASTRO_META", meta) + "\n" + inputPrelude(IMAGERY_OPACITY_INPUTS) + "_i0 * _i1 / 100;\n";
+  }
+
   return {
+    IMAGERY_CAMERA_INPUTS: IMAGERY_CAMERA_INPUTS,
+    IMAGERY_OPACITY_INPUTS: IMAGERY_OPACITY_INPUTS,
+    imageryViewExpression: imageryViewExpression,
+    imageryLevelExpression: imageryLevelExpression,
+    imageryOpacityExpression: imageryOpacityExpression,
     REVEAL_INPUTS: REVEAL_INPUTS,
     STAGE_INPUTS: STAGE_INPUTS,
     TITLE_INPUTS: TITLE_INPUTS,

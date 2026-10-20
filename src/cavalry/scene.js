@@ -33,15 +33,24 @@ var AstroScene = (function () {
   }
   function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
 
-  // Writes an input the way Cavalry reads it: an input fed from another layer's attribute (a Controls value, or a
-  // camera input the sky layers read) takes the value at that source, since a write to the fed input itself has no
-  // effect. The driver output "id" is not a value, so an input driven by one is written directly. Others are written directly.
+  // Writes an input the way Cavalry reads it. An input fed from a javaScript utility (a Controls value, the only
+  // links the sky makes) takes the value at that utility, since a write to the fed input itself has no effect.
+  // Any other source is not followed: a keyed attribute reads from a hidden animation curve, and a write to the
+  // attribute itself makes Cavalry key it at the playhead (as Cavalry Geo's setCamera does). The driver output "id"
+  // is not a value, so an input driven by one is written directly too.
   function writeInput(id, attr, value) {
     var from = "";
     try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
     var at = from.indexOf(".");
-    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
+    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR && isValuesUtility(from.slice(0, at))) {
+      setOne(from.slice(0, at), from.slice(at + 1), value);
+      return;
+    }
     setOne(id, attr, value);
+  }
+  // A Controls values utility is a javaScript layer (controls.js creates it with A.CAMERA_LAYER_TYPE).
+  function isValuesUtility(id) {
+    try { return String(api.getLayerType(id)) === "javaScript"; } catch (e) { return false; }
   }
 
   // Brings a sky's Controls up to date after a scene action (the panel script may load after this one: a missing panel is skipped).
@@ -919,6 +928,11 @@ var AstroScene = (function () {
       if (id) api.connect(spot, A.DRIVER_OUTPUT_ATTR, id, "opacity", true);
     });
     if (L.glowLevel) api.connect(spot, A.DRIVER_OUTPUT_ATTR, L.glowLevel, A.CAMERA_ARRAY_ATTR + ".0", true);
+    // The photo dims with the sky: its opacity utility takes the same visible share.
+    imageryGroups(s).forEach(function (g) {
+      var im = imageryParts(g);
+      if (im.opacityId) api.connect(spot, A.DRIVER_OUTPUT_ATTR, im.opacityId, A.CAMERA_ARRAY_ATTR + "." + E.inputIndex(E.IMAGERY_OPACITY_INPUTS, "spotVisible"), true);
+    });
     return spot;
   }
 
@@ -972,7 +986,471 @@ var AstroScene = (function () {
     return removed;
   }
 
+  // ---- Imagery (Task 5) ---------------------------------------------------------------------------
+  // The NASA Deep Star Maps photo, bent onto the camera with the Reproject filter (Cavalry Geo's bent imagery, local tiles
+  // only). The photo is a source comp, SOURCE_PX square, holding a View group and one group per level. The View's position
+  // and scale are driven from the camera (AstroReproject.viewFor), and each tile is a footage layer in the View's frame,
+  // which is in degrees: its centre is its RA (unwrapped by j turns, so a copy beside the 0/360 seam sits where the camera
+  // needs it) and its Dec. The sky's group holds one Composition Reference to the source comp, the Reproject filter and the
+  // photo's opacity utility. The source comp's centre is 0,0, so a point at uncentred source px p sits at p - SOURCE_PX / 2.
+  var IMAGERY_TYPE = "cavalryAstro::reproject";
+  var REPROJECT_MISSING = "Imagery needs the CavalryAstro plugin: drag the CavalryAstro_plugin folder from the download into the Cavalry window once, then press Build imagery again.";
+  var PACK_MISSING = "Imagery needs the imagery pack: download the CavalryAstro-imagery zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
+  var IMAGERY_GROUP_NAME = "Imagery: NASA Deep Star Maps", IMAGERY_SOURCE_PREFIX = "Imagery source: NASA Deep Star Maps · ";
+  var IMAGERY_ASSET_PREFIX = "CavalryAstro imagery · ", IMAGERY_KEY = "astroImagery", IMAGERY_VERSION = 1;
+  var IMAGERY_VIEW_NAME = "View", IMAGERY_REF_NAME = "Imagery source", IMAGERY_FILTER_NAME = "CavalryAstro Reproject", IMAGERY_OPACITY_NAME = "Imagery opacity";
+  var IMAGERY_VIEW_DRIVERS = [["position", "Imagery driver: View position"], ["scale", "Imagery driver: View scale"],
+    ["viewScale", "Imagery driver: filter view scale"], ["viewOffset", "Imagery driver: filter view offset"]];
+  var IMAGERY_CAMERA_FILTER_ATTRS = ["camRa", "camDec", "camFov", "camRotation"];
+  var IMAGERY_STEP_FRAMES = 5, IMAGERY_STEP_MS = 1000, IMAGERY_TICK_MS = 20;
+  // Each tile is drawn 2 px bigger on each side (1028 over 1024), which hides hairline seams between tiles.
+  var IMAGERY_SEAM = 1028 / 1024;
+  var SOURCE_PX = AstroReproject.SOURCE_PX, SOURCE_HALF = SOURCE_PX / 2;
+
+  function identity() { return { "position.x": 0, "position.y": 0, "rotation.z": 0, "scale.x": 1, "scale.y": 1 }; }
+  function setHidden(id, hidden) { api.set(id, { hidden: !!hidden }); }
+
+  // Whether this Cavalry has a layer type installed (a plugin's type name).
+  function layerTypeAvailable(type) {
+    if (typeof api.getAllLayerTypes !== "function") return false;
+    var types = [];
+    try { types = api.getAllLayerTypes(true) || []; } catch (e) { return false; }
+    for (var i = 0; i < types.length; i++) if (types[i] && types[i].type === type) return true;
+    return false;
+  }
+  function reprojectAvailable() { return layerTypeAvailable(IMAGERY_TYPE); }
+
+  // Whether the level 0 tiles are on disk (the pack's minimum): { ok, missing: paths }.
+  function imageryPackAvailable() {
+    var g = AstroImagery.LEVELS[0], missing = [];
+    for (var r = 0; r < g.rows; r++) for (var c = 0; c < g.cols; c++) {
+      var p = AstroImagery.tilePath(A.ASSETS_DIR(), 0, r, c);
+      if (!api.filePathExists(p)) missing.push(p);
+    }
+    return { ok: missing.length === 0, missing: missing };
+  }
+
+  function imageryPath(t) { return AstroImagery.tilePath(A.ASSETS_DIR(), t.L, t.row, t.col); }
+
+  // Runs fn with compId active and makes `back` active again however it ends.
+  function withComp(compId, back, fn) {
+    if (api.getActiveComp() === compId) return fn();
+    api.setActiveComp(compId);
+    try { return fn(); } finally { api.setActiveComp(back); }
+  }
+
+  // A new source comp, SOURCE_PX square and see-through, with the map comp's frame range and frame rate. The map comp is
+  // active again when this returns or throws; onMade gets the id as soon as the comp exists, so a failure can still delete it.
+  function createSourceComp(name, mapComp, onMade) {
+    var range = compFrameRange(), fps = null, comp, o = {};
+    try { fps = Number(api.get(mapComp, A.COMP_FPS_ATTR)); } catch (e) { fps = null; }
+    try { comp = api.createComp(name); onMade(comp); } finally { api.setActiveComp(mapComp); }
+    o[A.COMP_RESOLUTION_ATTR] = { x: SOURCE_PX, y: SOURCE_PX };
+    o[A.COMP_BACKGROUND_ATTR] = { r: 0, g: 0, b: 0, a: 0 };
+    api.set(comp, o);
+    setOne(comp, A.COMP_END_ATTR, range.end);
+    setOne(comp, A.COMP_START_ATTR, range.start);
+    if (fps > 0) setOne(comp, A.COMP_FPS_ATTR, fps);
+    return comp;
+  }
+
+  // The imagery asset group of the sky (found by name, or made), or null when this Cavalry can't group assets.
+  function findAssetGroup(name) {
+    if (typeof api.getAssetWindowLayers !== "function" || typeof api.getLayerType !== "function") return null;
+    var ids = [];
+    try { ids = api.getAssetWindowLayers(true) || []; } catch (e) { ids = []; }
+    for (var i = 0; i < ids.length; i++) {
+      try { if (String(api.getLayerType(ids[i])) === "assetGroup" && String(api.getNiceName(ids[i])) === name) return ids[i]; } catch (e) { /* not a group */ }
+    }
+    return null;
+  }
+  function imageryAssetGroup(s) {
+    try {
+      if (typeof api.createAssetGroup !== "function" || typeof api.parent !== "function" || typeof api.getParent !== "function") return null;
+      var name = IMAGERY_ASSET_PREFIX + s.name;
+      return findAssetGroup(name) || api.createAssetGroup(name);
+    } catch (e) { return null; }
+  }
+  // Moves the top-level ones among ids into group. Assets are never deleted, only filed.
+  function fileInAssetGroup(ids, group) {
+    if (!group) return;
+    ids.forEach(function (id) {
+      try { if (String(api.getParent(id)) === "") api.parent(id, group); } catch (e) { /* stays where it is */ }
+    });
+  }
+
+  // The imagery groups of the sky (the newest first, as Cavalry lists children): the photo, and any it replaces while it builds.
+  function imageryGroups(s) {
+    return api.getChildren(s.groupId).filter(function (id) { var m = metaOf(id); return !!m && m.category === "imagery"; });
+  }
+  function childOf(groupId, pred) {
+    var out = null;
+    api.getChildren(groupId).forEach(function (k) { if (!out && pred(k)) out = k; });
+    return out;
+  }
+  // The parts of a photo: its group, source comp, reference, filter and opacity utility (ids, or null).
+  function imageryParts(groupId) {
+    var rec = userData(groupId, IMAGERY_KEY);
+    return {
+      groupId: groupId, sourceComp: rec && rec.sourceComp ? rec.sourceComp : null,
+      refId: childOf(groupId, function (k) { return String(api.getLayerType(k)) === "compReference"; }),
+      filterId: childOf(groupId, function (k) { return String(api.getLayerType(k)) === IMAGERY_TYPE; }),
+      opacityId: childOf(groupId, function (k) { var m = metaOf(k); return !!m && m.category === "imageryOpacity"; })
+    };
+  }
+  // The sky's photo, or null.
+  function findImagery(s) {
+    var g = imageryGroups(s)[0];
+    return g ? imageryParts(g) : null;
+  }
+
+  // The copies of each planned tile: its own (j = 0), and one for each turn of RA whose copy meets a sampled view's RA box.
+  function placementsOf(items, samples, size) {
+    var windows = samples.map(function (cam) { return AstroReproject.viewFor(cam, size.width, size.height); });
+    var out = [];
+    items.forEach(function (t) {
+      var b = AstroImagery.tileBox(t.L, t.row, t.col), js = { 0: true };
+      windows.forEach(function (v) {
+        for (var j = Math.ceil((v.ra0 - b.ra1) / 360); j <= Math.floor((v.ra1 - b.ra0) / 360); j++) js[j] = true;
+      });
+      Object.keys(js).map(Number).sort(function (x, y) { return x - y; }).forEach(function (j) {
+        out.push({ L: t.L, row: t.row, col: t.col, j: j });
+      });
+    });
+    return out;
+  }
+
+  // The tiles the sky's camera needs: the camera every IMAGERY_STEP_FRAMES frames over the comp, plus the last frame.
+  // Returns AstroImagery.planTiles' { items, capped, count } with placements (the copies) and warn (or null).
+  function planImagery(s) {
+    if (!reprojectAvailable()) throw new Error(REPROJECT_MISSING);
+    var size = compSize(), range = compFrameRange(), samples = [], last = null;
+    for (var f = range.start; f <= range.end; f += IMAGERY_STEP_FRAMES) { samples.push(readCameraAt(s, f)); last = f; }
+    if (range.end >= range.start && last !== range.end) samples.push(readCameraAt(s, range.end));
+    if (!samples.length) samples.push(readCamera(s));
+    var plan = AstroImagery.planTiles(samples, size.width, size.height);
+    plan.placements = placementsOf(plan.items, samples, size);
+    plan.warn = plan.count > AstroImagery.WARN_TILES ? "This flight needs " + plan.count + " imagery tiles, so the build will be slow." : null;
+    return plan;
+  }
+
+  // A tile copy's centre and layer scale in the View's frame (degrees; RA unwrapped by j turns), from its image's real
+  // resolution res. The View maps the frame onto the source comp, so the tile lands where AstroReproject.tileLocal puts it.
+  function tileFrame(p, res) {
+    var b = AstroImagery.tileBox(p.L, p.row, p.col);
+    return { x: (b.ra0 + b.ra1) / 2 + 360 * p.j, y: (b.dec0 + b.dec1) / 2,
+      sx: (b.ra1 - b.ra0) / res.x * IMAGERY_SEAM, sy: (b.dec1 - b.dec0) / res.y * IMAGERY_SEAM };
+  }
+
+  // Runs a job's units in timer steps: each step runs units until its budget is used (always at least one). A unit
+  // that throws ends the job (job.fail, then onDone({ ok: false, error })). Returns { cancel() }.
+  function runJob(job, budgetMs, onProgress, onDone) {
+    var timer = null, finished = false;
+    function finish(r) { if (finished) return; finished = true; if (timer) timer.stop(); onDone(r); }
+    function tick() {
+      if (finished) return;
+      var start = Date.now(), first = true;
+      try {
+        while (!job.done() && (first || Date.now() - start < budgetMs)) { first = false; job.unit(); }
+      } catch (e) {
+        if (job.fail) job.fail(e);
+        finish({ ok: false, error: e && e.message ? e.message : String(e) });
+        return;
+      }
+      if (onProgress) onProgress(job.progress());
+      if (job.done()) finish(job.result());
+    }
+    timer = new api.Timer({ onTimeout: tick });
+    timer.setRepeating(true);
+    timer.setInterval(IMAGERY_TICK_MS);
+    timer.start();
+    return { cancel: function () { return job.cancel ? job.cancel() : false; } };
+  }
+
+  // The Camera's five values feed a utility's inputs (its array), in the same order.
+  function feedCamera(cameraId, utilId) {
+    for (var i = 0; i < CAMERA_KEYS.length; i++) api.connect(cameraId, A.CAMERA_ARRAY_ATTR + "." + i, utilId, A.CAMERA_ARRAY_ATTR + "." + i, true);
+  }
+
+  // The photo's values a rebuild keeps: Imagery · Opacity (the utility's opacity), Brightness (the filter's gain),
+  // Softness (the filter's softness) and Hide.
+  function carriedImagery(im) {
+    var o = im.opacityId ? Number(api.get(im.opacityId, A.CAMERA_ARRAY_ATTR + ".0")) : 100;
+    var g = im.filterId ? Number(api.get(im.filterId, "gain")) : 1;
+    var s = im.filterId ? Number(api.get(im.filterId, "softness")) : 1.5;
+    return { opacity: isFinite(o) ? o : 100, gain: isFinite(g) ? g : 1, softness: isFinite(s) ? s : 1.5, hidden: !!api.get(im.groupId, "hidden") };
+  }
+
+  // The photo's layers, in the order they come down: the source comp's footage, then its groups (the level groups and View),
+  // then the photo's group (its reference, filter and utility go with it), then the source comp itself. Each is one step.
+  function teardownEntries(im, mapComp) {
+    var out = [];
+    if (im.sourceComp && layerThere(im.sourceComp)) {
+      withComp(im.sourceComp, mapComp, function () {
+        var kids = api.getCompLayers(false);
+        kids.filter(function (id) { return String(api.getLayerType(id)) === "footage"; }).forEach(function (id) { out.push({ id: id, comp: im.sourceComp }); });
+        kids.filter(function (id) { return String(api.getLayerType(id)) !== "footage"; }).forEach(function (id) { out.push({ id: id, comp: im.sourceComp }); });
+      });
+    }
+    if (im.groupId && layerThere(im.groupId)) out.push({ id: im.groupId });
+    if (im.sourceComp && layerThere(im.sourceComp)) out.push({ comp: im.sourceComp });
+    return out;
+  }
+  function layerThere(id) { return typeof api.layerExists !== "function" || api.layerExists(id); }
+  function deleteIfThere(id) { if (layerThere(id)) api.deleteLayer(id); }
+  // One layer (or comp) of a photo taken down. A layer that is already gone is skipped.
+  function removeEntry(e, mapComp) {
+    try {
+      if (!e.id) { api.deleteLayer(e.comp); return; }
+      if (e.comp) withComp(e.comp, mapComp, function () { deleteIfThere(e.id); });
+      else deleteIfThere(e.id);
+    } catch (x) { /* already gone */ }
+  }
+
+  // Puts the photo directly above the topmost drawn star layer (bands or glow), as Geo does, then the constellation
+  // borders and lines directly above it (photo, borders, lines), but only those that sit below the photo. Names, reveals,
+  // the credit and user layers are not moved. Best-effort: a throw here never fails the build, because the finished photo
+  // is kept either way.
+  function stackImagery(s, groupId) {
+    try {
+      var L = skyLayers(s), stars = L.bands.concat([L.glow]).filter(function (id) { return !!id; });
+      var kids = api.getChildren(s.groupId), anchor = null;
+      kids.forEach(function (id) { if (!anchor && stars.indexOf(id) >= 0) anchor = id; });
+      if (anchor) placeAbove(groupId, anchor);
+      if (!anchor) return;
+      var photoAt = kids.indexOf(groupId);
+      function belowPhoto(id) { return !!id && kids.indexOf(id) > photoAt; }
+      if (belowPhoto(L.borders)) raiseAbove(L.borders, groupId);
+      if (belowPhoto(L.lines)) raiseAbove(L.lines, L.borders || groupId);
+    } catch (e) { /* best-effort: the photo is finished either way */ }
+  }
+
+  // Moves id to the top of its siblings (with the selection put back), then steps it down to directly above other.
+  function raiseAbove(id, other) {
+    var previous = [];
+    try { previous = api.getSelection() || []; } catch (e) { previous = []; }
+    try { api.select([id]); api.bringToFront(); } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
+    placeAbove(id, other);
+  }
+
+  // Puts id directly above other (in the same parent) by stepping id down the stack; the other layers keep their order.
+  // Does nothing when other is not below id's place (it can only step down).
+  function placeAbove(id, other) {
+    if (typeof api.moveBackward !== "function" || typeof api.select !== "function") return;
+    var parent = api.getParent(id), previous = [];
+    try { previous = api.getSelection(); } catch (e) { previous = []; }
+    try {
+      for (var n = 0; n < 1000; n++) {
+        var kids = api.getChildren(parent), i = kids.indexOf(id), o = kids.indexOf(other);
+        if (i < 0 || o < 0 || i >= o || i === o - 1) return;
+        api.select([id]);
+        api.moveBackward();
+      }
+    } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
+  }
+
+  // The message the build reports when it is done.
+  function doneMessage(built, missing) {
+    var msg = "Imagery built: " + built + " tile" + (built === 1 ? "" : "s") + ".";
+    if (missing) msg += " " + missing + (missing === 1 ? " tile was" : " tiles were") + " missing and skipped.";
+    return msg;
+  }
+
+  // Builds the sky's photo from a plan (planImagery). Refused before anything is made when the plugin or the pack is
+  // missing. The build runs in timer steps (about a second each; every asset loads in the first). The new photo is
+  // complete before the old one is taken apart, a layer per step, and the Imagery rows are kept. A tile missing on disk is
+  // skipped and counted. onProgress({ built, total, phase }) runs each step; onDone(result) runs once, with
+  // { ok, groupId, tiles, missing, message } or { ok: false, error } (the new photo is removed; the old one is left alone).
+  // opts.budgetMs is the step budget (for tests). Returns { cancel() }, which returns false once the new photo is complete.
+  function beginImageryBuild(s, plan, onProgress, onDone, opts) {
+    if (!reprojectAvailable()) throw new Error(REPROJECT_MISSING);
+    if (!imageryPackAvailable().ok) throw new Error(PACK_MISSING);
+    var budget = opts && opts.budgetMs !== undefined ? opts.budgetMs : IMAGERY_STEP_MS;
+    var mapComp = api.getActiveComp(), size = compSize(), previous = imageryGroups(s).map(imageryParts);
+    var keep = previous.length ? carriedImagery(previous[0]) : { opacity: 100, gain: 1, softness: 1.5, hidden: false };
+    var queue = [], missingKeys = {}, assetOf = {}, levels = {}, levelOrder = [], next = 0, built = 0, unreadable = 0;
+    plan.placements.forEach(function (p) {
+      if (api.filePathExists(imageryPath(p))) queue.push(p);
+      else missingKeys[p.L + "_" + p.row + "_" + p.col] = true;
+    });
+    queue.sort(function (a, b) { return (a.L - b.L) || (a.j - b.j) || (a.row - b.row) || (a.col - b.col); });
+    var missing = Object.keys(missingKeys).length;
+    var rec = { groupId: null, sourceComp: null, filterId: null }, view = null, filter = null, phase = "setup", pending = [];
+
+    // Setup (the first step): every asset loads now, and the source comp, View, the photo's group, reference, filter and opacity.
+    function setup() {
+      queue.forEach(function (p) { var path = imageryPath(p); if (!assetOf[path]) assetOf[path] = api.loadAsset(path, false); });
+      var assets = [];
+      Object.keys(assetOf).forEach(function (k) { assets.push(assetOf[k]); });
+      fileInAssetGroup(assets, imageryAssetGroup(s));
+      rec.sourceComp = createSourceComp(IMAGERY_SOURCE_PREFIX + s.name, mapComp, function (c) { rec.sourceComp = c; });
+      withComp(rec.sourceComp, mapComp, function () {
+        view = api.create("group", IMAGERY_VIEW_NAME);
+        api.set(view, identity());
+        tagPart(view, { category: "imageryView" });
+      });
+      rec.groupId = api.create("group", IMAGERY_GROUP_NAME);
+      api.parent(rec.groupId, s.groupId);
+      api.set(rec.groupId, identity());
+      setHidden(rec.groupId, true);
+      tagPart(rec.groupId, { category: "imagery" });
+      api.setUserData(rec.groupId, IMAGERY_KEY, { v: IMAGERY_VERSION, sourceComp: rec.sourceComp });
+      var ref = api.createCompReference(rec.sourceComp);
+      api.rename(ref, IMAGERY_REF_NAME);
+      api.parent(ref, rec.groupId);
+      api.set(ref, identity());
+      tagPart(ref, { category: "imageryRef" });
+      filter = api.create(IMAGERY_TYPE, IMAGERY_FILTER_NAME);
+      api.set(filter, { frameW: size.width, gain: keep.gain, softness: keep.softness, allowViewportClipping: false, samplingQuality: 1 });
+      api.connect(filter, "id", ref, "filters");
+      api.parent(filter, rec.groupId);
+      IMAGERY_CAMERA_FILTER_ATTRS.forEach(function (attr, i) { api.connect(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i, filter, attr, true); });
+      rec.filterId = filter;
+      rec.opacityId = utilityLayer(rec.groupId, IMAGERY_OPACITY_NAME, E.imageryOpacityExpression({ category: "imageryOpacity" }),
+        E.IMAGERY_OPACITY_INPUTS, { opacity: keep.opacity }, { category: "imageryOpacity" });
+      api.connect(rec.opacityId, A.DRIVER_OUTPUT_ATTR, ref, "opacity", true);
+      rec.refId = ref;
+    }
+
+    // One tile copy: its asset as a footage layer in the source comp, in its level group, placed in the View's frame.
+    function levelGroup(L) {
+      if (!levels[L]) {
+        var g = api.create("group", "z " + L);
+        api.parent(g, view);
+        api.set(g, identity());
+        tagPart(g, { category: "imageryLevel", L: L });
+        levels[L] = g;
+        levelOrder.push(L);
+      }
+      return levels[L];
+    }
+    function addTile(p) {
+      withComp(rec.sourceComp, mapComp, function () {
+        var ids = api.addAssetToComp(assetOf[imageryPath(p)]), id = Array.isArray(ids) ? ids[0] : ids;
+        var res = null;
+        try { res = api.get(id, "resolution"); } catch (e) { res = null; }
+        // A palette PNG loads 0 x 0 and draws nothing: dropped.
+        if (!res || !(res.x > 0) || !(res.y > 0)) { api.deleteLayer(id); unreadable++; return; }
+        api.parent(id, levelGroup(p.L));
+        var f = tileFrame(p, res);
+        api.set(id, { "position.x": f.x, "position.y": f.y, "rotation.z": 0, "scale.x": f.sx, "scale.y": f.sy });
+        tagPart(id, { category: "imageryTile", L: p.L, row: p.row, col: p.col, j: p.j });
+        built++;
+      });
+    }
+
+    // The drivers (the View's, the filter's and each level's opacity), the photo shown and stacked, the Spotlight
+    // connected, and the previous photo hidden and queued for removal. Empty level groups (all their tiles unreadable) go.
+    function drivers() {
+      var W = size.width, H = size.height;
+      // A level group lives in the source comp, so it is deleted with that comp active. Best-effort: an empty group is harmless.
+      Object.keys(levels).forEach(function (L) {
+        try {
+          withComp(rec.sourceComp, mapComp, function () {
+            if (!api.getChildren(levels[L]).length) deleteIfThere(levels[L]);
+          });
+        } catch (e) { /* best-effort: an empty level group is harmless */ }
+      });
+      levelOrder = levelOrder.filter(function (L) { return api.getChildren(levels[L]).length > 0; });
+      IMAGERY_VIEW_DRIVERS.forEach(function (d) {
+        var drv = utilityLayer(rec.groupId, d[1], E.imageryViewExpression(ASTRO_REPROJECT_SRC, d[0], W, H, { category: "imageryDriver" }),
+          E.IMAGERY_CAMERA_INPUTS, {}, { category: "imageryDriver" });
+        feedCamera(s.cameraId, drv);
+        api.connect(drv, A.DRIVER_OUTPUT_ATTR, d[0] === "viewScale" || d[0] === "viewOffset" ? filter : view, d[0], true);
+      });
+      // The highest level actually built: each level's driver hides it under the level above, except this top one.
+      var maxBuilt = levelOrder.reduce(function (m, L) { return Math.max(m, L); }, 0);
+      levelOrder.forEach(function (L) {
+        withComp(rec.sourceComp, mapComp, function () {
+          var drv = utilityLayer(view, "Imagery driver: z " + L + " opacity", E.imageryLevelExpression(ASTRO_REPROJECT_SRC, L, W, maxBuilt, { category: "imageryDriver" }),
+            E.IMAGERY_CAMERA_INPUTS, {}, { category: "imageryDriver" });
+          feedCamera(s.cameraId, drv);
+          api.connect(drv, A.DRIVER_OUTPUT_ATTR, levels[L], "opacity", true);
+        });
+      });
+      setHidden(rec.groupId, keep.hidden);
+      // A first photo goes above the stars and below the lines, borders, names and reveals. A rebuild takes the old
+      // photo's place (directly above it), so the user's own order of the layers is not undone.
+      var replaced = previous.filter(function (im) { return layerThere(im.groupId); })[0];
+      if (replaced) placeAbove(rec.groupId, replaced.groupId);
+      else stackImagery(s, rec.groupId);
+      refreshSpotlight(s);
+      previous.forEach(function (im) {
+        if (im.groupId === rec.groupId || !layerThere(im.groupId)) return;
+        setHidden(im.groupId, true);
+        pending = pending.concat(teardownEntries(im, mapComp));
+      });
+    }
+
+    var job = {
+      unit: function () {
+        if (phase === "setup") { setup(); phase = "tiles"; }
+        else if (phase === "tiles") {
+          if (next < queue.length) addTile(queue[next++]);
+          else { drivers(); phase = pending.length ? "cleanup" : "done"; }
+        } else if (phase === "discard" || phase === "cleanup") {
+          removeEntry(pending.shift(), mapComp);
+          if (!pending.length) phase = phase === "discard" ? "cancelled" : "done";
+        }
+      },
+      done: function () { return phase === "done" || phase === "cancelled"; },
+      progress: function () { return { built: next, total: queue.length, phase: phase }; },
+      result: function () {
+        if (phase === "cancelled") return { ok: false, cancelled: true };
+        // The Controls are re-made on the new utilities (the rows' links follow the layers, as the other scene actions do).
+        syncControls(s);
+        return { ok: true, groupId: rec.groupId, tiles: built, missing: missing, unreadable: unreadable, levels: levelOrder.length,
+          message: doneMessage(built, missing) };
+      },
+      // A failed build takes its new photo down (the old one is untouched). A failure after the drivers keeps the new photo.
+      fail: function () {
+        if (phase === "setup" || phase === "tiles") {
+          try { deleteIfThere(rec.groupId); } catch (e) { /* already failing */ }
+          try { deleteIfThere(rec.sourceComp); } catch (e) { /* already failing */ }
+        }
+        phase = "failed";
+      },
+      cancel: function () {
+        if (phase === "discard" || phase === "cancelled") return true;
+        if (phase !== "setup" && phase !== "tiles") return false;
+        if (!rec.groupId) { phase = "cancelled"; return true; }
+        pending = teardownEntries({ groupId: rec.groupId, sourceComp: rec.sourceComp }, mapComp);
+        phase = pending.length ? "discard" : "cancelled";
+        return true;
+      }
+    };
+    return runJob(job, budget, onProgress || function () {}, onDone || function () {});
+  }
+
+  // The credit for the photo: one text layer "Imagery credit" in the sky's group, bottom-left (as Geo's), in the theme's names colour.
+  // Pressing it again keeps the one layer and sets its text again.
+  var IMAGERY_CREDIT_NAME = "Imagery credit", IMAGERY_CREDIT = "NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC";
+  var CREDIT_FONT_SIZE = 24, CREDIT_IN = 200, CREDIT_UP = 80;
+  function addImageryCredit(s) {
+    var size = compSize(), id = null;
+    api.getChildren(s.groupId).forEach(function (k) { if (!id && api.getNiceName(k) === IMAGERY_CREDIT_NAME) id = k; });
+    if (!id) {
+      id = api.create(A.TEXT_LAYER_TYPE, IMAGERY_CREDIT_NAME);
+      api.parent(id, s.groupId);
+      setOne(id, "fontSize", CREDIT_FONT_SIZE);
+      api.set(id, { position: [-size.width / 2 + CREDIT_IN, -size.height / 2 + CREDIT_UP] });
+    }
+    setOne(id, A.TEXT_ATTR, IMAGERY_CREDIT);
+    applyStyle(id, { fill: themeOf(s).names });
+    return id;
+  }
+
   return {
+    IMAGERY_TYPE: IMAGERY_TYPE,
+    IMAGERY_CREDIT: IMAGERY_CREDIT,
+    REPROJECT_MISSING: REPROJECT_MISSING,
+    PACK_MISSING: PACK_MISSING,
+    reprojectAvailable: reprojectAvailable,
+    imageryPackAvailable: imageryPackAvailable,
+    planImagery: planImagery,
+    beginImageryBuild: beginImageryBuild,
+    findImagery: findImagery,
+    addImageryCredit: addImageryCredit,
     createSky: createSky,
     findSkies: findSkies,
     skyData: skyData,

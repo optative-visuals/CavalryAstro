@@ -3,3 +3,5 @@ node_modules/
 .superpowers/
 docs/superpowers/
 HANDOVER.md
+tools/.venv/
+tiles/

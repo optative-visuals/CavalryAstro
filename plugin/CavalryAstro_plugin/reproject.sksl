@@ -1,0 +1,130 @@
+// CavalryAstro Reproject: bends a flat plate carree sky (a CavalryAstro "Imagery source" composition,
+// 4104 px square, RA running left to right and Dec up, centred on the layer) onto the stereographic view
+// of the camera. Filter coordinates are centred on the layer, in pixels, with +y up.
+// Copyright (C) 2026 optative-visuals. Licensed under GPL-3.0-or-later; see LICENSE.
+// Mirrors AstroReproject.sourcePoint and footprintTaps in src/core/reproject.js, and AstroSky.unproject in
+// src/core/sky.js: change them together.
+uniform float camRa;
+uniform float camDec;
+uniform float camFov;
+uniform float camRotation;
+uniform float frameW;
+uniform float viewScale;
+uniform float2 viewOffset;
+uniform float gain;
+uniform float softness;
+uniform shader image;
+
+const float D2R = 0.0174532925199433;
+// The source comp's side in pixels (AstroReproject.SOURCE_PX).
+const float SOURCE_PX = 4104.0;
+// The projector's 120 degree circle, in planar radius: 2·tan(60°).
+const float CLAMP_R = 3.4641016151377544;
+
+// Wraps d into [-180, 180): the RA of a point relative to the camera, across the 0/360 seam.
+float relRa(float ra, float ref) { return mod(ra - ref + 180.0, 360.0) - 180.0; }
+
+// The source comp point of a filter point q (AstroReproject.sourcePoint). Returns (sx, sy, 1), or (0, 0, 0)
+// beyond the projector's 120 degrees.
+float3 sourcePoint(float2 q) {
+  // Pixels per unit of planar radius, as AstroSky.scaleOf.
+  // The fov is clamped to 0.5..220 degrees, as render.js does for the sky's projector.
+  float fov = clamp(camFov, 0.5, 220.0);
+  float scale = (frameW * 0.5) / (2.0 * tan(fov * D2R * 0.25));
+  // Beyond the projector's 120 degrees: none. The 1e-5 is float32 slack for the boundary.
+  float planar = length(q) / scale;
+  if (planar > CLAMP_R * (1.0 + 1e-5)) { return float3(0.0); }
+
+  // Undo the camera rotation (AstroSky.unproject).
+  float rot = camRotation * D2R;
+  float cr = cos(rot);
+  float sr = sin(rot);
+  float px = q.x / scale;
+  float py = q.y / scale;
+  float X = px * cr + py * sr;
+  float Y = -px * sr + py * cr;
+  float r = sqrt(X * X + Y * Y);
+  float ux = X / max(r, 1e-30);
+  float uy = Y / max(r, 1e-30);
+
+  // Planar radius r = 2·tan(c/2): sin c and cos c follow directly.
+  float r2 = r * r;
+  float sinC = 4.0 * r / (4.0 + r2);
+  float cosC = (4.0 - r2) / (4.0 + r2);
+  // Point = cos c · centre + sin c · (east · -ux + north · uy), with east = -x and north = +y.
+  float a0 = camRa * D2R;
+  float d0 = camDec * D2R;
+  float sA0 = sin(a0);
+  float cA0 = cos(a0);
+  float sd0 = sin(d0);
+  float cd0 = cos(d0);
+  float e = -ux * sinC;
+  float nn = uy * sinC;
+  float vx = cosC * cd0 * cA0 + e * (-sA0) + nn * (-sd0 * cA0);
+  float vy = cosC * cd0 * sA0 + e * cA0 + nn * (-sd0 * sA0);
+  float vz = cosC * sd0 + nn * cd0;
+  // atan(0, 0) is undefined: the exact pole pixel takes RA 0, as atan2(0, 0) does in the JavaScript.
+  float ra = (vx == 0.0 && vy == 0.0) ? 0.0 : atan(vy, vx) / D2R;
+  float dec = atan(vz, sqrt(vx * vx + vy * vy)) / D2R;
+
+  // The plate carree source: RA relative to the camera, then the scale and offset of the view.
+  return float3(relRa(ra, camRa) * viewScale + viewOffset.x, dec * viewScale + viewOffset.y, 1.0);
+}
+
+// Whether a source point lies inside the comp.
+bool inComp(float2 s) {
+  return s.x >= 0.0 && s.x <= SOURCE_PX && s.y >= 0.0 && s.y <= SOURCE_PX;
+}
+
+// Whether a source point's sky position lies within the projector's 120 degrees (cos c >= cos 120° = -0.5).
+// Inverts the plate carree mapping of sourcePoint: RA relative to the camera and Dec from the view's scale and offset.
+bool withinProjector(float2 s) {
+  // A non-positive view scale maps nothing: treat the tap as invalid rather than divide by zero.
+  if (viewScale <= 0.0) { return false; }
+  float d = (s.x - viewOffset.x) / viewScale * D2R;
+  float dec = (s.y - viewOffset.y) / viewScale * D2R;
+  float cosC = sin(dec) * sin(camDec * D2R) + cos(dec) * cos(camDec * D2R) * cos(d);
+  return cosC >= -0.5 - 1e-5;
+}
+
+// Brightness: multiply the premultiplied colour, keep alpha, never let the colour pass the alpha.
+half4 grade(half4 c) {
+  return half4(min(c.rgb * half(gain), half3(c.a)), c.a);
+}
+
+half4 main(float2 p) {
+  float3 s0 = sourcePoint(p);
+  if (s0.z == 0.0) { return half4(0.0); }
+  float3 ex = sourcePoint(p + float2(1.0, 0.0));
+  float3 ey = sourcePoint(p + float2(0.0, 1.0));
+
+  // Softness 0, or a neighbour lies beyond the projector's 120 degrees: one tap at the pixel's own source point.
+  if (softness <= 0.001 || ex.z == 0.0 || ey.z == 0.0) {
+    if (!inComp(s0.xy)) { return half4(0.0); }
+    return grade(image.eval(s0.xy - float2(SOURCE_PX * 0.5)));
+  }
+
+  // Soften: a 5×5 Gaussian over the pixel's footprint. Taps sit at u, v in {-1, -0.5, 0, 0.5, 1} × softness output
+  // pixels along the neighbours' directions, with sigma = 0.5 × softness. Invalid taps are skipped and the weights
+  // normalised over the valid ones, so the average stays premultiplied.
+  float2 dx = ex.xy - s0.xy;
+  float2 dy = ey.xy - s0.xy;
+  float sigma = 0.5 * softness;
+  float inv2Sigma2 = 1.0 / (2.0 * sigma * sigma);
+  float4 sum = float4(0.0);
+  float n = 0.0;
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 5; j++) {
+      float u = (float(i) - 2.0) * 0.5 * softness;
+      float v = (float(j) - 2.0) * 0.5 * softness;
+      float2 s = s0.xy + dx * u + dy * v;
+      if (!inComp(s) || !withinProjector(s)) { continue; }
+      float w = exp(-(u * u + v * v) * inv2Sigma2);
+      sum += w * float4(image.eval(s - float2(SOURCE_PX * 0.5)));
+      n += w;
+    }
+  }
+  if (n == 0.0) { return half4(0.0); }
+  // The premultiplied weighted average over the valid taps, then the brightness.
+  return grade(half4(sum / n));
+}

@@ -182,6 +182,9 @@ var AstroControlPanel = (function () {
       lines: L.lines, borders: L.borders, names: L.names, bands: [], glow: null, reveals: [] };
     model.bands = L.bands.map(function (id) { return { id: id, state: linkState(id, K.stars) }; });
     if (L.glow) model.glow = { id: L.glow, state: linkState(L.glow, K.stars) };
+    // The sky's photo, when it has one: its opacity utility, group and Reproject filter.
+    var im = S.findImagery(sky);
+    model.imagery = im ? { opacity: im.opacityId, group: im.groupId, filter: im.filterId } : null;
     S.findReveals(sky).forEach(function (r) {
       var m = S.revealMembers(r), ring = function (id) { return id ? { id: id, state: linkState(id, K.ring) } : null; };
       model.reveals.push({ id: r.groupId, number: r.number, name: m.constellation, amount: r.amountId, lines: m.lines,

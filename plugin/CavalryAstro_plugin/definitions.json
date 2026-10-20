@@ -1,0 +1,27 @@
+[{
+  "author": "cavalryAstro",
+  "type": "reproject",
+  "superType": "thirdPartyFilter",
+  "version": "1.0",
+  "skslFile": "reproject.sksl",
+  "attributes": {
+    "camRa": { "type": "double", "default": 0, "step": 0.1, "prefix": "°" },
+    "camDec": { "type": "double", "default": 0, "step": 0.1, "prefix": "°" },
+    "camFov": { "type": "double", "default": 60, "min": 0.5, "max": 220, "step": 0.1, "prefix": "°" },
+    "camRotation": { "type": "double", "default": 0, "step": 0.1, "prefix": "°" },
+    "frameW": { "type": "double", "default": 1920, "min": 1, "step": 1 },
+    "viewScale": { "type": "double", "default": 1, "min": 0, "step": 0.01 },
+    "viewOffset": { "type": "double2", "default": { "x": 0, "y": 0 } },
+    "gain": { "type": "double", "default": 1, "min": 0, "max": 4, "step": 0.01 },
+    "softness": { "type": "double", "default": 1.5, "min": 0, "max": 3, "step": 0.01 },
+    "allowViewportClipping": { "default": false },
+    "samplingQuality": { "default": 1 }
+  },
+  "triggers": {
+    "out": ["camRa", "camDec", "camFov", "camRotation", "frameW", "viewScale", "viewOffset", "gain", "softness"]
+  },
+  "UI": {
+    "attributeOrder": ["camRa", "camDec", "camFov", "camRotation", "frameW", "viewScale", "viewOffset", "gain", "softness"],
+    "icon": "cavalryAstro.png"
+  }
+}]

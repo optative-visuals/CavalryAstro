@@ -88,3 +88,32 @@ test("the input lists match the design", () => {
   assert.deepEqual(E.LINE_INPUTS.slice(7), [["draw", 1]]);
   assert.deepEqual(E.TEXT_INPUTS.slice(7), [["textSize", 18], ["dx", 0], ["dy", 0]]);
 });
+
+test("the View position driver evaluates to viewFor().position at an off-centre camera", () => {
+  const R = require("../src/core/reproject.js");
+  const cam = { ra: 84, dec: 7.3, fov: 62.5, rotation: 0, projection: 0 };
+  const ctx = vm.createContext({ camRa: 84, camDec: 7.3, camFov: 62.5, camRotation: 0, camProjection: 0 });
+  const src = E.imageryViewExpression(buildRuntimeSource("reproject"), "position", 1920, 1080, {});
+  const got = vm.runInContext(src, ctx);
+  assert.deepEqual([...got], R.viewFor(cam, 1920, 1080).position);
+});
+
+test("the level driver expression evaluates to AstroImagery.levelVisibleOpacity for each level and top planned level", () => {
+  const I = require("../src/core/imagery.js");
+  const src = buildRuntimeSource("reproject");
+  const cams = [
+    { ra: 83.8, dec: 0, fov: 180, rotation: 0, projection: 0 },
+    { ra: 83.8, dec: -5.4, fov: 60, rotation: 0, projection: 0 },
+    { ra: 0, dec: 0, fov: 20, rotation: 0.3, projection: 0 },
+    { ra: 83.8, dec: 0, fov: 2, rotation: 0, projection: 0 }
+  ];
+  for (const cam of cams) {
+    const ctx = vm.createContext({ camRa: cam.ra, camDec: cam.dec, camFov: cam.fov, camRotation: cam.rotation, camProjection: 0 });
+    for (const top of [1, 2, 3]) {
+      for (let L = 0; L <= top; L++) {
+        const expr = E.imageryLevelExpression(src, L, 1920, top, {});
+        assert.equal(vm.runInContext(expr, ctx), I.levelVisibleOpacity(L, cam, 1920, top), "L" + L + " top " + top + " fov " + cam.fov);
+      }
+    }
+  }
+});

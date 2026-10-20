@@ -1,0 +1,21 @@
+[{
+  "type": "layerStrings",
+  "value": {
+    "author": "cavalryAstro",
+    "layerType": "reproject",
+    "niceName": "CavalryAstro Reproject",
+    "layerInfo": "Bends the flat NASA sky imagery onto the camera's stereographic view. CavalryAstro adds and connects it for you when you build imagery.",
+    "language": "en",
+    "attributes": {
+      "camRa": ["Camera RA", "Connected from the camera."],
+      "camDec": ["Camera Dec", "Connected from the camera."],
+      "camFov": ["Camera Field of View", "Connected from the camera."],
+      "camRotation": ["Camera Rotation", "Connected from the camera."],
+      "frameW": ["Frame Width", "Set from the composition's width."],
+      "viewScale": ["View Scale", "Set every frame by CavalryAstro: how much the imagery source is shrunk."],
+      "viewOffset": ["View Offset", "Set every frame by CavalryAstro: the centre of the imagery source's visible area."],
+      "gain": ["Brightness", "Set from Imagery · Brightness in the Sky controls."],
+      "softness": ["Softness", "Set from Imagery · Softness in the Sky controls."]
+    }
+  }
+}]

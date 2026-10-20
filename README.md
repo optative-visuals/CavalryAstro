@@ -6,11 +6,11 @@ lines and names, and reveals that draw each constellation on in turn. It works a
 Cavalry layers you can style, keyframe and render.
 
 [![Latest release](https://img.shields.io/github/v/release/optative-visuals/CavalryAstro?label=download)](https://github.com/optative-visuals/CavalryAstro/releases/latest)
-[![Licence: GPL v3](https://img.shields.io/badge/licence-GPL--3.0-blue)](LICENSE.txt)
+[![Licence: GPL v3](https://img.shields.io/badge/licence-GPL--3.0-blue)](LICENSE)
 [![Support my work on Ko-fi](https://img.shields.io/badge/support%20my%20work-Ko--fi-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/optative)
 
-Work in progress. v0.1 covers the sky, the constellations and the reveals. See the
-[guide](docs/guide.md#known-limits) for what is still to come.
+Work in progress. v0.1 covers the sky, the constellations and the reveals; v0.2 adds NASA imagery behind the
+stars. See the [guide](docs/guide.md#known-limits) for what is still to come.
 
 ## Quick start
 
@@ -28,6 +28,12 @@ Every sky's settings sit in its **Sky controls** and **Reveal controls** compone
 2. In Cavalry, choose **Help → Show Scripts Folder**, and drag **CavalryAstro.js** and the
    **CavalryAstro_assets** folder straight into it.
 3. Open **Scripts → CavalryAstro**. No restart needed.
+4. **Imagery plugin (once, for imagery only):** drag the **CavalryAstro_plugin** folder from the zip into the
+   Cavalry window. It adds the **CavalryAstro Reproject** filter that the sky imagery uses.
+5. **Imagery pack (optional):** download **CavalryAstro-imagery-v<version>.zip** from the same
+   [Releases page](https://github.com/optative-visuals/CavalryAstro/releases/latest), unzip it, and merge its
+   **CavalryAstro_assets** folder into the one in your Scripts folder. Then press **Build imagery** on the
+   **Imagery** tab. The [guide](docs/guide.md#imagery) explains the rest.
 
 Updating? Replace CavalryAstro.js, and merge the new CavalryAstro_assets folder into the old one (on a
 Mac, hold Option while dragging and choose Merge). Your settings and saved styles are kept elsewhere,
@@ -53,6 +59,6 @@ The full attributions, the d3-celestial licence text and the changes made to the
 ## Licence
 
 CavalryAstro is free software under the GNU General Public License, version 3 or (at your option) any
-later version (GPL-3.0-or-later). See [LICENSE.txt](LICENSE.txt). The bundled star data keeps its own
+later version (GPL-3.0-or-later). See [LICENSE](LICENSE). The bundled star data keeps its own
 licence (CC BY-SA 4.0), and the constellation data keeps its own (BSD-3-Clause); see
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).

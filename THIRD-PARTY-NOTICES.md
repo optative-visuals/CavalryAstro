@@ -1,7 +1,7 @@
 # Third-party notices
 
-CavalryAstro is licensed under GPL-3.0-or-later (see LICENSE.txt). It includes data from two
-third-party projects, which keep their own licences:
+CavalryAstro is licensed under GPL-3.0-or-later (see LICENSE). It includes data from three
+third-party projects, which keep their own licences (NASA's imagery is public domain):
 
 ## d3-celestial (BSD-3-Clause)
 
@@ -39,3 +39,20 @@ name and Bayer designation, values are rounded, and the result is re-encoded as 
 
 `assets/sky/stars.json` is itself licensed under CC BY-SA 4.0, so any copy or adaptation of it must
 keep this attribution and carry the same licence.
+
+## NASA Scientific Visualization Studio: Deep Star Maps 2020 (public domain)
+
+The imagery pack (`tiles/nasa-dsm`, zipped by `npm run package-imagery` as `CavalryAstro-imagery`) is made from
+NASA's Deep Star Maps 2020 (`starmap_2020_32k.exr`, from https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/),
+a NASA Scientific Visualization Studio visualisation. NASA SVS content is public domain: it is free to download,
+use, and redistribute.
+
+Changes made for CavalryAstro: `tools/make-sky-tiles.py` reads the map (a linear, plate carrée celestial image),
+tone-maps it, and cuts it into 1024-pixel JPEG tiles at four levels (4096, 8192, 16384 and 32768 pixels wide),
+with row 0 at Dec +90 and column 0 at RA 0, RA increasing with the column. The tiles are not committed
+to the repository; they are built offline and packaged for the release.
+
+Credit lines to keep with the imagery:
+
+- NASA/Goddard Space Flight Center Scientific Visualization Studio
+- Gaia DR2: ESA/Gaia/DPAC
