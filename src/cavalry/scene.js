@@ -1196,17 +1196,16 @@ var AstroScene = (function () {
     } catch (x) { /* already gone */ }
   }
 
-  // Puts the photo above the sky's stars (bands and glow) and below its lines, borders, names and reveals: the group is
-  // raised, then the lines, borders, names and each reveal, in that order, so they stay above it. The selection is restored.
+  // Puts the photo directly above the topmost drawn star layer (bands or glow), as Geo does. Nothing else in the sky group
+  // moves: a credit, a user layer or a line above the stars stays above the photo. Best-effort: a throw here never fails the
+  // build, because the finished photo is kept either way.
   function stackImagery(s, groupId) {
-    if (typeof api.bringToFront !== "function" || typeof api.select !== "function") return;
-    var L = skyLayers(s), previous = [];
-    try { previous = api.getSelection(); } catch (e) { previous = []; }
-    function raise(id) { if (id) { api.select([id]); api.bringToFront(); } }
     try {
-      raise(groupId);
-      [L.lines, L.borders, L.names].concat(findReveals(s).map(function (r) { return r.groupId; })).forEach(raise);
-    } finally { try { api.select(previous); } catch (e) { /* cosmetic */ } }
+      var L = skyLayers(s), stars = L.bands.concat([L.glow]).filter(function (id) { return !!id; });
+      var kids = api.getChildren(s.groupId), anchor = null;
+      kids.forEach(function (id) { if (!anchor && stars.indexOf(id) >= 0) anchor = id; });
+      if (anchor) placeAbove(groupId, anchor);
+    } catch (e) { /* best-effort: the photo is finished either way */ }
   }
 
   // Puts id directly above other (in the same parent) by stepping id down the stack; the other layers keep their order.
