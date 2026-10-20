@@ -150,6 +150,10 @@ function addSceneApi(api) {
   let active = COMP;
   // A component's promoted attributes: { src: "layer.attr", name, notes } in list order (Cavalry's promotedAttributes).
   const promos = {};
+  // Keyframes as Cavalry keeps them: a keyed attribute reads from a hidden animation curve (its out is the attribute's
+  // connection), and a set on it writes a key at the playhead. curveOf[id][attr] is that curve.
+  const curveOf = {};
+  const keyedAt = (id, attr) => !!(keyframes[id] && keyframes[id][attr] && Object.keys(keyframes[id][attr]).length);
   const promoRef = (k) => /^promotedAttributes\.(\d+)\.(name|notes)$/.exec(String(k));
   // The [layer, attr] an input is connected from (the latest connection), or null.
   const sourceOf = (id, attr) => {
@@ -256,6 +260,7 @@ function addSceneApi(api) {
       Object.keys(obj).forEach((k) => {
         const m = promoRef(k);
         if (m && promos[id]) { promos[id][Number(m[1])][m[2]] = obj[k]; return; }
+        if (keyedAt(id, k)) { keyframes[id][k][frame] = JSON.parse(JSON.stringify(obj[k])); return; }
         ensure(id)[k] = JSON.parse(JSON.stringify(obj[k]));
       });
       if (comps.includes(id) && obj.endFrame !== undefined) ensure(id).frameRange = { x: 0, y: obj.endFrame };
@@ -286,6 +291,8 @@ function addSceneApi(api) {
         keyframes[id] = keyframes[id] || {};
         keyframes[id][attr] = keyframes[id][attr] || {};
         keyframes[id][attr][f] = obj[attr];
+        curveOf[id] = curveOf[id] || {};
+        if (!curveOf[id][attr]) curveOf[id][attr] = "animationCurve#" + (nextId++);
       });
     },
     getKeyframeTimes: (id, attr) => {
@@ -312,6 +319,8 @@ function addSceneApi(api) {
         const k = connections[i];
         if (k[2] === id && k[3] === attr) return k[0] + "." + k[1];
       }
+      // Like Cavalry: a keyed attribute is driven by its animation curve.
+      if (curveOf[id] && curveOf[id][attr] && keyedAt(id, attr)) return curveOf[id][attr] + ".out";
       return "";
     },
     getOutConnections: (id, attr) => connections.filter((k) => k[0] === id && k[1] === attr).map((k) => k[2] + "." + k[3]),
@@ -1153,6 +1162,51 @@ test("setWholeSky on an unfed attribute still writes it directly", () => {
   assert.equal(api.get(layers.lines, "hidden"), true);
   S.setWholeSky(sky, "lines", true);
   assert.equal(api.get(layers.lines, "hidden"), false);
+});
+
+// ---- Keyframed inputs: a write goes to the attribute, not its animation curve -----------------------
+test("jumpCamera after a flight keys the playhead; the flight's other keys stay", () => {
+  const { api, S, sky } = skyFixture();
+  api.setFrame(0);
+  S.flyTo(sky, { ra: 200, dec: -10, fov: 40 }, { start: 0, end: 100, easing: "smooth", arc: "normal" });
+  api.setFrame(100);
+  const atEnd = api.get(sky.cameraId, "array.0");
+  assert.match(api.getInConnection(sky.cameraId, "array.0"), /^animationCurve#\d+\.out$/, "the camera's RA is keyed");
+  api.setFrame(0);
+  S.jumpCamera(sky, { ra: 10, dec: 37, fov: 30 });
+  assert.equal(api.get(sky.cameraId, "array.0"), 10, "the camera's RA at frame 0 is the target");
+  assert.equal(api.get(sky.cameraId, "array.1"), 37, "the camera's Dec at frame 0 is the target");
+  assert.equal(api.get(sky.cameraId, "array.2"), 30, "the camera's fov at frame 0 is the target");
+  const times = api.getKeyframeTimes(sky.cameraId, "array.0");
+  assert.ok(times.includes(0) && times.includes(50) && times.includes(100), "the key at 0 and the flight's other keys");
+  api.setFrame(100);
+  assert.equal(api.get(sky.cameraId, "array.0"), atEnd, "the key at 100 is unchanged");
+});
+
+test("setDarkness on a keyed band darkness with no Controls link keys the playhead", () => {
+  const { api, S, sky, layers } = skyFixture();
+  const band = layers.bands[0], attr = "generator.array." + E.inputIndex(E.STAR_INPUTS, "darkness");
+  // The Controls link is removed first (the user's Disconnect), so the band's darkness is keyed alone.
+  const src = api.getInConnection(band, attr), at = src.indexOf(".");
+  api.disconnect(src.slice(0, at), src.slice(at + 1), band, attr);
+  api.keyframe(band, 0, { [attr]: 50 });
+  api.keyframe(band, 100, { [attr]: 80 });
+  assert.match(api.getInConnection(band, attr), /^animationCurve#\d+\.out$/, "the darkness is keyed");
+  api.setFrame(0);
+  S.setDarkness(sky, 30);
+  assert.equal(api.get(band, attr), 30, "the value at the playhead is the new darkness");
+  api.setFrame(100);
+  assert.equal(api.get(band, attr), 80, "the key at 100 stays");
+});
+
+test("setDarkness on a band linked to a Controls value writes the values utility", () => {
+  const { api, S, sky, layers } = skyFixture();
+  const band = layers.bands[0], attr = "generator.array." + E.inputIndex(E.STAR_INPUTS, "darkness");
+  const src = api.getInConnection(band, attr), at = src.indexOf(".");
+  const util = src.slice(0, at), utilAttr = src.slice(at + 1);
+  assert.equal(api.getLayerType(util), "javaScript", "the link is from the values utility");
+  S.setDarkness(sky, 30);
+  assert.equal(api.get(util, utilAttr), 30, "the values utility holds the new darkness");
 });
 
 // ---- The panel: the Sky tab (Task 12) ---------------------------------------------------------------

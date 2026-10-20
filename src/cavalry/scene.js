@@ -33,15 +33,24 @@ var AstroScene = (function () {
   }
   function setOne(id, attr, value) { var o = {}; o[attr] = value; api.set(id, o); }
 
-  // Writes an input the way Cavalry reads it: an input fed from another layer's attribute (a Controls value, or a
-  // camera input the sky layers read) takes the value at that source, since a write to the fed input itself has no
-  // effect. The driver output "id" is not a value, so an input driven by one is written directly. Others are written directly.
+  // Writes an input the way Cavalry reads it. An input fed from a javaScript utility (a Controls value, the only
+  // links the sky makes) takes the value at that utility, since a write to the fed input itself has no effect.
+  // Any other source is not followed: a keyed attribute reads from a hidden animation curve, and a write to the
+  // attribute itself makes Cavalry key it at the playhead (as Cavalry Geo's setCamera does). The driver output "id"
+  // is not a value, so an input driven by one is written directly too.
   function writeInput(id, attr, value) {
     var from = "";
     try { from = String(api.getInConnection(id, attr) || ""); } catch (e) { from = ""; }
     var at = from.indexOf(".");
-    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR) { setOne(from.slice(0, at), from.slice(at + 1), value); return; }
+    if (at > 0 && from.slice(at + 1) !== A.DRIVER_OUTPUT_ATTR && isValuesUtility(from.slice(0, at))) {
+      setOne(from.slice(0, at), from.slice(at + 1), value);
+      return;
+    }
     setOne(id, attr, value);
+  }
+  // A Controls values utility is a javaScript layer (controls.js creates it with A.CAMERA_LAYER_TYPE).
+  function isValuesUtility(id) {
+    try { return String(api.getLayerType(id)) === "javaScript"; } catch (e) { return false; }
   }
 
   // Brings a sky's Controls up to date after a scene action (the panel script may load after this one: a missing panel is skipped).
