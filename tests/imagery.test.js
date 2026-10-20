@@ -184,3 +184,34 @@ test("a camera whose px/deg sits inside L2's fade window plans L2 tiles", () => 
   const plan = I.planTiles([cam], FRAME_W, FRAME_H);
   assert.ok(plan.items.some((t) => t.L === 2), "L2 tiles are planned");
 });
+
+// The first camera, scanning from a wide fov inwards, that satisfies pred (the fade windows are narrow, so scan finely).
+function camWhere(pred) {
+  for (let fov = 180; fov >= 0.5; fov -= 0.01) {
+    const cam = { ra: 83.8, dec: 0, fov: fov, rotation: 0, projection: 0 };
+    if (pred(cam)) return cam;
+  }
+  throw new Error("no camera satisfies the predicate");
+}
+
+test("levelVisibleOpacity: with L2 fully in and L3 fading, L0 and L1 are hidden and L2 is drawn", () => {
+  const cam = camWhere((c) => I.levelOpacity(2, c, FRAME_W) === 100 && I.levelOpacity(3, c, FRAME_W) > 0 && I.levelOpacity(3, c, FRAME_W) < 100);
+  assert.equal(I.levelVisibleOpacity(1, cam, FRAME_W, 3), 0, "L1 hidden under L2");
+  assert.equal(I.levelVisibleOpacity(0, cam, FRAME_W, 3), 0, "L0 hidden under L1, which is fully in");
+  assert.equal(I.levelVisibleOpacity(2, cam, FRAME_W, 3), 100, "L2 drawn");
+});
+
+test("levelVisibleOpacity: during L2's fade-in, L1 stays at 100 beneath it", () => {
+  const cam = camWhere((c) => I.levelOpacity(2, c, FRAME_W) > 0 && I.levelOpacity(2, c, FRAME_W) < 100);
+  assert.equal(I.levelVisibleOpacity(1, cam, FRAME_W, 3), 100, "L1 is not hidden while L2 is only fading in");
+  assert.equal(I.levelVisibleOpacity(2, cam, FRAME_W, 3), I.levelOpacity(2, cam, FRAME_W), "L2 is its own fade");
+});
+
+test("levelVisibleOpacity: with maxPlannedL 2, L2 is never hidden by L3 (the plan has no L3)", () => {
+  const cam = camWhere((c) => I.levelOpacity(3, c, FRAME_W) === 100);
+  assert.equal(I.levelVisibleOpacity(2, cam, FRAME_W, 2), 100, "the top planned level is drawn");
+  for (let fov = 180; fov >= 0.5; fov -= 0.5) {
+    const c = { ra: 83.8, dec: 0, fov: fov, rotation: 0, projection: 0 };
+    assert.equal(I.levelVisibleOpacity(2, c, FRAME_W, 2), I.levelOpacity(2, c, FRAME_W), "L2 at fov " + fov);
+  }
+});

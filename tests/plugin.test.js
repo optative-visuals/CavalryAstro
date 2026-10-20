@@ -54,7 +54,7 @@ test("definitions.json defaults and ranges", () => {
   assert.equal(a.gain.default, 1);
   assert.equal(a.gain.min, 0);
   assert.equal(a.gain.max, 4);
-  assert.equal(a.softness.default, 1);
+  assert.equal(a.softness.default, 1.5);
   assert.equal(a.softness.min, 0);
   assert.equal(a.softness.max, 3);
   assert.equal(a.camFov.default, 60);

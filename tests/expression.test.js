@@ -97,3 +97,23 @@ test("the View position driver evaluates to viewFor().position at an off-centre 
   const got = vm.runInContext(src, ctx);
   assert.deepEqual([...got], R.viewFor(cam, 1920, 1080).position);
 });
+
+test("the level driver expression evaluates to AstroImagery.levelVisibleOpacity for each level and top planned level", () => {
+  const I = require("../src/core/imagery.js");
+  const src = buildRuntimeSource("reproject");
+  const cams = [
+    { ra: 83.8, dec: 0, fov: 180, rotation: 0, projection: 0 },
+    { ra: 83.8, dec: -5.4, fov: 60, rotation: 0, projection: 0 },
+    { ra: 0, dec: 0, fov: 20, rotation: 0.3, projection: 0 },
+    { ra: 83.8, dec: 0, fov: 2, rotation: 0, projection: 0 }
+  ];
+  for (const cam of cams) {
+    const ctx = vm.createContext({ camRa: cam.ra, camDec: cam.dec, camFov: cam.fov, camRotation: cam.rotation, camProjection: 0 });
+    for (const top of [1, 2, 3]) {
+      for (let L = 0; L <= top; L++) {
+        const expr = E.imageryLevelExpression(src, L, 1920, top, {});
+        assert.equal(vm.runInContext(expr, ctx), I.levelVisibleOpacity(L, cam, 1920, top), "L" + L + " top " + top + " fov " + cam.fov);
+      }
+    }
+  }
+});

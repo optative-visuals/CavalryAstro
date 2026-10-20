@@ -48,6 +48,15 @@ var AstroImagery = (function () {
     return 100 * (u - start) / FADE_OCTAVES;
   }
 
+  // The opacity (0..100) a level is drawn at, with Cavalry Geo's hide rule: a level is 0 while the level directly above
+  // it is fully in (100), so the fine tiles are not drawn under a photo that covers them. The highest planned level
+  // (maxPlannedL: the highest level actually built) is never hidden, because nothing covers it, so a capped plan may
+  // leave holes there rather than hide the level beneath.
+  function levelVisibleOpacity(L, cam, frameW, maxPlannedL) {
+    if (L < maxPlannedL && levelOpacity(L + 1, cam, frameW) >= 100) return 0;
+    return levelOpacity(L, cam, frameW);
+  }
+
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
   // The tile holding [ra, dec] at level L.
@@ -161,6 +170,7 @@ var AstroImagery = (function () {
     pxPerDegree: pxPerDegree,
     levelFor: levelFor,
     levelOpacity: levelOpacity,
+    levelVisibleOpacity: levelVisibleOpacity,
     tileOf: tileOf,
     tileBox: tileBox,
     frameGrid: frameGrid,

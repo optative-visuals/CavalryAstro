@@ -1168,8 +1168,8 @@ var AstroScene = (function () {
   function carriedImagery(im) {
     var o = im.opacityId ? Number(api.get(im.opacityId, A.CAMERA_ARRAY_ATTR + ".0")) : 100;
     var g = im.filterId ? Number(api.get(im.filterId, "gain")) : 1;
-    var s = im.filterId ? Number(api.get(im.filterId, "softness")) : 1;
-    return { opacity: isFinite(o) ? o : 100, gain: isFinite(g) ? g : 1, softness: isFinite(s) ? s : 1, hidden: !!api.get(im.groupId, "hidden") };
+    var s = im.filterId ? Number(api.get(im.filterId, "softness")) : 1.5;
+    return { opacity: isFinite(o) ? o : 100, gain: isFinite(g) ? g : 1, softness: isFinite(s) ? s : 1.5, hidden: !!api.get(im.groupId, "hidden") };
   }
 
   // The photo's layers, in the order they come down: the source comp's footage, then its groups (the level groups and View),
@@ -1258,7 +1258,7 @@ var AstroScene = (function () {
     if (!imageryPackAvailable().ok) throw new Error(PACK_MISSING);
     var budget = opts && opts.budgetMs !== undefined ? opts.budgetMs : IMAGERY_STEP_MS;
     var mapComp = api.getActiveComp(), size = compSize(), previous = imageryGroups(s).map(imageryParts);
-    var keep = previous.length ? carriedImagery(previous[0]) : { opacity: 100, gain: 1, softness: 1, hidden: false };
+    var keep = previous.length ? carriedImagery(previous[0]) : { opacity: 100, gain: 1, softness: 1.5, hidden: false };
     var queue = [], missingKeys = {}, assetOf = {}, levels = {}, levelOrder = [], next = 0, built = 0, unreadable = 0;
     plan.placements.forEach(function (p) {
       if (api.filePathExists(imageryPath(p))) queue.push(p);
@@ -1349,9 +1349,11 @@ var AstroScene = (function () {
         feedCamera(s.cameraId, drv);
         api.connect(drv, A.DRIVER_OUTPUT_ATTR, d[0] === "viewScale" || d[0] === "viewOffset" ? filter : view, d[0], true);
       });
+      // The highest level actually built: each level's driver hides it under the level above, except this top one.
+      var maxBuilt = levelOrder.reduce(function (m, L) { return Math.max(m, L); }, 0);
       levelOrder.forEach(function (L) {
         withComp(rec.sourceComp, mapComp, function () {
-          var drv = utilityLayer(view, "Imagery driver: z " + L + " opacity", E.imageryLevelExpression(ASTRO_REPROJECT_SRC, L, W, { category: "imageryDriver" }),
+          var drv = utilityLayer(view, "Imagery driver: z " + L + " opacity", E.imageryLevelExpression(ASTRO_REPROJECT_SRC, L, W, maxBuilt, { category: "imageryDriver" }),
             E.IMAGERY_CAMERA_INPUTS, {}, { category: "imageryDriver" });
           feedCamera(s.cameraId, drv);
           api.connect(drv, A.DRIVER_OUTPUT_ATTR, levels[L], "opacity", true);

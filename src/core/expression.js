@@ -147,10 +147,11 @@ var AstroExpression = (function () {
     return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
       IMAGERY_CAM + "var _v = AstroReproject.viewFor(_c, " + Number(frameW) + ", " + Number(frameH) + ");\n" + IMAGERY_VIEW_RESULTS[which] + "\n";
   }
-  // A level's opacity (0..100) at the camera (AstroImagery.levelOpacity).
-  function imageryLevelExpression(runtimeSrc, L, frameW, meta) {
+  // A level's drawn opacity (0..100) at the camera (AstroImagery.levelVisibleOpacity, Geo's hide rule), with the
+  // highest level actually built baked in as maxPlannedL.
+  function imageryLevelExpression(runtimeSrc, L, frameW, maxPlannedL, meta) {
     return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
-      IMAGERY_CAM + "AstroImagery.levelOpacity(" + Number(L) + ", _c, " + Number(frameW) + ");\n";
+      IMAGERY_CAM + "AstroImagery.levelVisibleOpacity(" + Number(L) + ", _c, " + Number(frameW) + ", " + Number(maxPlannedL) + ");\n";
   }
   // The photo's opacity: its opacity input times the spotlight's visible share, over 100.
   function imageryOpacityExpression(meta) {
