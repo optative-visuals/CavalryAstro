@@ -1927,7 +1927,7 @@ test("setDarkness and applyTheme never touch any imagery layer", () => {
   assert.equal(snap(), before);
 });
 
-test("the build and removeImagery never delete an asset", () => {
+test("the build and a rebuild never delete an asset", () => {
   const f = skyFixture();
   const deleted = [], real = f.api.deleteLayer;
   f.api.deleteLayer = (id) => { deleted.push(id); return real(id); };
@@ -1935,11 +1935,7 @@ test("the build and removeImagery never delete an asset", () => {
   putTiles(f.api, plan);
   buildImagery(f, plan);
   buildImagery(f, f.S.planImagery(f.sky));
-  const from = f.api._timers.length;
-  f.S.removeImagery(f.sky, () => {});
-  runNewTimers(f.api, from);
-  assert.equal(f.S.findImagery(f.sky), null, "the imagery is gone");
-  assert.equal(f.api._comps.length, 1, "its source comp is gone");
+  assert.equal(f.api._comps.length, 2, "the old photo's source comp is gone, the new one is there");
   assert.ok(deleted.length > 0);
   assert.equal(deleted.filter((id) => String(id).indexOf("asset#") === 0).length, 0);
 });

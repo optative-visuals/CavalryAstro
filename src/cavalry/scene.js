@@ -1395,23 +1395,6 @@ var AstroScene = (function () {
     return runJob(job, budget, onProgress || function () {}, onDone || function () {});
   }
 
-  // Takes the sky's photo apart: it is hidden, then its layers come down a layer per step (its assets stay).
-  // onDone(result) runs once. Returns { cancel() }.
-  function removeImagery(s, onDone) {
-    var mapComp = api.getActiveComp(), pending = [];
-    imageryGroups(s).forEach(function (g) {
-      var im = imageryParts(g);
-      setHidden(g, true);
-      pending = pending.concat(teardownEntries(im, mapComp));
-    });
-    return runJob({
-      unit: function () { removeEntry(pending.shift(), mapComp); },
-      done: function () { return !pending.length; },
-      progress: function () { return { built: 0, total: pending.length, phase: "remove" }; },
-      result: function () { return { ok: true }; }
-    }, IMAGERY_STEP_MS, null, onDone || function () {});
-  }
-
   // The credit for the photo: one text layer "Imagery credit" in the sky's group, bottom-left (as Geo's), in the theme's names colour.
   // Pressing it again keeps the one layer and sets its text again.
   var IMAGERY_CREDIT_NAME = "Imagery credit", IMAGERY_CREDIT = "NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC";
@@ -1440,7 +1423,6 @@ var AstroScene = (function () {
     planImagery: planImagery,
     beginImageryBuild: beginImageryBuild,
     findImagery: findImagery,
-    removeImagery: removeImagery,
     addImageryCredit: addImageryCredit,
     createSky: createSky,
     findSkies: findSkies,
