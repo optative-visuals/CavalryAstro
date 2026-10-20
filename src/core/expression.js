@@ -130,7 +130,9 @@ var AstroExpression = (function () {
   var IMAGERY_CAMERA_INPUTS = [["camRa", 0], ["camDec", 0], ["camFov", 60], ["camRotation", 0], ["camProjection", 0]];
   // The photo's opacity (0..100) and the spotlight's visible share (0..100) of it.
   var IMAGERY_OPACITY_INPUTS = [["opacity", 100], ["spotVisible", 100]];
-  var IMAGERY_CAM = "{ra: _i0, dec: _i1, fov: _i2, rotation: _i3, projection: _i4}";
+  // The camera read from the inputs, then normalised as the render does (AstroSky.safeCam: projection 0, fov clamped,
+  // non-finite values guarded), so a bad camera gives finite values rather than throwing. Defines _c.
+  var IMAGERY_CAM = "var _c = AstroSky.safeCam({ra: _i0, dec: _i1, fov: _i2, rotation: _i3, projection: _i4});\n";
   // The View's results from AstroReproject.viewFor. Position: the camera's RA (unwrapped, as the tiles' copies are) and the
   // box's Dec middle, both scaled, so a tile at its degrees lands where tileLocal puts it; scale; and the filter's view scale
   // and view offset (uncentred, as the shader reads them).
@@ -143,12 +145,12 @@ var AstroExpression = (function () {
   function imageryViewExpression(runtimeSrc, which, frameW, frameH, meta) {
     if (!Object.prototype.hasOwnProperty.call(IMAGERY_VIEW_RESULTS, which)) throw new Error("Unknown imagery view driver: " + which);
     return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
-      "var _v = AstroReproject.viewFor(" + IMAGERY_CAM + ", " + Number(frameW) + ", " + Number(frameH) + ");\n" + IMAGERY_VIEW_RESULTS[which] + "\n";
+      IMAGERY_CAM + "var _v = AstroReproject.viewFor(_c, " + Number(frameW) + ", " + Number(frameH) + ");\n" + IMAGERY_VIEW_RESULTS[which] + "\n";
   }
   // A level's opacity (0..100) at the camera (AstroImagery.levelOpacity).
   function imageryLevelExpression(runtimeSrc, L, frameW, meta) {
     return writeTag("ASTRO_META", meta) + "\n" + runtimeSrc + "\n;\n" + inputPrelude(IMAGERY_CAMERA_INPUTS) +
-      "AstroImagery.levelOpacity(" + Number(L) + ", " + IMAGERY_CAM + ", " + Number(frameW) + ");\n";
+      IMAGERY_CAM + "AstroImagery.levelOpacity(" + Number(L) + ", _c, " + Number(frameW) + ");\n";
   }
   // The photo's opacity: its opacity input times the spotlight's visible share, over 100.
   function imageryOpacityExpression(meta) {

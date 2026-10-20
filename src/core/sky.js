@@ -6,6 +6,22 @@ var AstroSky = (function () {
   // Points further than this from the camera centre are clamped to the circle and reported as outside.
   var CLAMP_DEG = 120;
 
+  // A number, or the fallback when v is missing or not finite.
+  function finite(v, fallback) {
+    var n = Number(v);
+    return (v === null || v === undefined || !isFinite(n)) ? fallback : n;
+  }
+
+  // The camera as the projector needs it: a projection other than stereographic (0) is treated as 0, the fov is clamped
+  // to 0.5..220, and each value is guarded, so a bad input draws or reprojects a plausible view instead of throwing.
+  function safeCam(cam) {
+    var c = cam || {};
+    var fov = finite(c.fov, 60);
+    if (fov < 0.5) fov = 0.5;
+    if (fov > 220) fov = 220;
+    return { ra: finite(c.ra, 0), dec: finite(c.dec, 0), fov: fov, rotation: finite(c.rotation, 0), projection: 0 };
+  }
+
   // RA into [0,360).
   function wrapRa(ra) {
     var r = ra % 360;
@@ -144,6 +160,7 @@ var AstroSky = (function () {
 
   return {
     angularDistance: angularDistance,
+    safeCam: safeCam,
     wrapRa: wrapRa,
     nearestRa: nearestRa,
     mid: mid,

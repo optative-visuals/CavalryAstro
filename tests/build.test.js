@@ -1747,6 +1747,24 @@ test("a throwing bringToFront or moveBackward still leaves a finished photo", ()
   assert.ok(f.S.findImagery(f.sky), "the finished photo is kept");
 });
 
+test("the imagery drivers repair a bad camera: projection 1 and fov NaN evaluate without throwing, and give finite values", () => {
+  const f = skyFixture();
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  buildImagery(f, plan);
+  const im = f.S.findImagery(f.sky);
+  const view = f.api._layers.find((id) => f.api._compOf[id] === im.sourceComp && f.api.getNiceName(id) === "View");
+  const bad = { camRa: 10, camDec: 20, camFov: NaN, camRotation: 0, camProjection: 1 };
+  const drivers = [childNamed(f.api, im.groupId, "Imagery driver: View position"), childNamed(f.api, im.groupId, "Imagery driver: View scale"),
+    childNamed(f.api, im.groupId, "Imagery driver: filter view scale"), childNamed(f.api, im.groupId, "Imagery driver: filter view offset"),
+    childNamed(f.api, view, "Imagery driver: z 0 opacity")];
+  drivers.forEach((id) => {
+    const out = [];
+    assert.doesNotThrow(() => out.push(runUtility(f.context, String(f.api.get(id, "expression")), bad)), f.api.getNiceName(id));
+    [].concat(out[0]).forEach((v) => assert.ok(Number.isFinite(v), f.api.getNiceName(id) + " is finite"));
+  });
+});
+
 test("the filter's camera inputs are connected to the Camera, and frameW is the comp's width", () => {
   const f = skyFixture();
   const plan = f.S.planImagery(f.sky);
