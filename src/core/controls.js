@@ -89,12 +89,14 @@ var AstroControls = (function () {
     }
     if (model.glowLevel) direct(model.glowLevel, GLOW_LEVEL, "Stars" + SEP + "Glow", { hardMin: 0, hardMax: 100 });
     if (model.background) direct(model.background, FILL, "Background" + SEP + "Colour");
-    // The photo, while it exists: Opacity (the opacity utility's first input), Hide (its group) and Brightness (the Reproject filter's gain).
+    // The photo, while it exists: Opacity (the opacity utility's first input), Hide (its group), Brightness (the Reproject
+    // filter's gain) and Softness (its softness).
     var im = model.imagery;
     if (im) {
       if (im.opacity) direct(im.opacity, "array.0", "Imagery" + SEP + "Opacity", { hardMin: 0, hardMax: 100 });
       if (im.group) direct(im.group, "hidden", "Imagery" + SEP + "Hide");
       if (im.filter) direct(im.filter, "gain", "Imagery" + SEP + "Brightness", { hardMin: 0, hardMax: 4 });
+      if (im.filter) direct(im.filter, "softness", "Imagery" + SEP + "Softness", { hardMin: 0, hardMax: 3 });
     }
     lineRows(model.lines, "Lines");
     lineRows(model.borders, "Borders");

@@ -96,28 +96,41 @@ var AstroReproject = (function () {
     return cosC >= -0.5 - 1e-5;
   }
 
-  // The source points the shader averages for output pixel (x, y): a 4×4 grid over the pixel's footprint, whose
-  // edges are the source points of the pixel's right and upper neighbours. Mirrors the shader's tap layout (i outer,
-  // j inner). Taps the shader drops (outside the comp, or beyond 120 degrees) are dropped here too, so fewer than 16
-  // points come back near the edges. Returns the single source point when a neighbour lies beyond the projector's
-  // 120 degrees (the shader falls back to one tap there), and null when the pixel itself lies beyond them.
-  function footprintTaps(cam, frameW, view, x, y) {
+  // Whether a source point lies inside the comp (the shader's inComp).
+  function inComp(s) { return s[0] >= 0 && s[0] <= SOURCE_PX && s[1] >= 0 && s[1] <= SOURCE_PX; }
+
+  // The taps the shader averages for output pixel (x, y) at a softness: a 5×5 Gaussian. Tap offsets are
+  // u, v in {-1, -0.5, 0, 0.5, 1} × softness output pixels along the pixel's right and upper neighbours' directions,
+  // weight exp(-(u² + v²) / (2σ²)) with σ = 0.5 × softness. Taps the shader skips (outside the comp, or beyond 120
+  // degrees) are dropped, and the weights are normalised over the rest. Returns [{p: [sx, sy], w}]. At softness 0,
+  // or when a neighbour lies beyond the projector's 120 degrees, the single tap at the pixel's own source point
+  // (none if that lies outside the comp). Null when the pixel itself lies beyond the 120 degrees.
+  function footprintTaps(cam, frameW, view, x, y, softness) {
     var s0 = sourcePoint(cam, frameW, view, x, y);
     if (!s0) return null;
+    function single() { return inComp(s0) ? [{ p: s0, w: 1 }] : []; }
+    if (!(softness > 0.001)) return single();
     var sx = sourcePoint(cam, frameW, view, x + 1, y);
     var sy = sourcePoint(cam, frameW, view, x, y + 1);
-    if (!sx || !sy) return [s0];
+    if (!sx || !sy) return single();
     var dx = [sx[0] - s0[0], sx[1] - s0[1]];
     var dy = [sy[0] - s0[0], sy[1] - s0[1]];
-    var taps = [];
-    for (var i = 0; i < 4; i++) {
-      for (var j = 0; j < 4; j++) {
-        var fi = (i + 0.5) / 4 - 0.5;
-        var fj = (j + 0.5) / 4 - 0.5;
-        var t = [s0[0] + dx[0] * fi + dy[0] * fj, s0[1] + dx[1] * fi + dy[1] * fj];
-        if (tapValid(cam, view, t)) taps.push(t);
+    var sigma = 0.5 * softness;
+    var inv2Sigma2 = 1 / (2 * sigma * sigma);
+    var taps = [], total = 0;
+    for (var i = 0; i < 5; i++) {
+      for (var j = 0; j < 5; j++) {
+        var u = (i - 2) * 0.5 * softness;
+        var v = (j - 2) * 0.5 * softness;
+        var t = [s0[0] + dx[0] * u + dy[0] * v, s0[1] + dx[1] * u + dy[1] * v];
+        if (!tapValid(cam, view, t)) continue;
+        var w = Math.exp(-(u * u + v * v) * inv2Sigma2);
+        taps.push({ p: t, w: w });
+        total += w;
       }
     }
+    if (!(total > 0)) return [];
+    for (var k = 0; k < taps.length; k++) taps[k].w /= total;
     return taps;
   }
 

@@ -14,7 +14,8 @@
       "frameW": ["Frame Width", "Set from the composition's width."],
       "viewScale": ["View Scale", "Set every frame by CavalryAstro: how much the imagery source is shrunk."],
       "viewOffset": ["View Offset", "Set every frame by CavalryAstro: the centre of the imagery source's visible area."],
-      "gain": ["Brightness", "Set from Imagery · Brightness in the Sky controls."]
+      "gain": ["Brightness", "Set from Imagery · Brightness in the Sky controls."],
+      "softness": ["Softness", "Set from Imagery · Softness in the Sky controls."]
     }
   }
 }]

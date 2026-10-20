@@ -195,39 +195,88 @@ test("cameras 0.01 deg apart in RA at the same fov share the quantised scale, of
   assert.ok(Math.abs((b.offset[0] - a.offset[0]) - (dPos + a.scale * 0.01)) < 1e-6, "offset follows the RA shift");
 });
 
-test("footprintTaps returns 16 points centred on sourcePoint, within half the pixel footprint", () => {
+test("footprintTaps returns 25 weighted taps centred on sourcePoint, with weights that sum to 1", () => {
   const view = R.viewFor(ORION, W, H);
   for (const name of Object.keys(STARS)) {
     const [ra, dec] = STARS[name];
-    const x = pixelOf(ORION, ra, dec)[0], y = pixelOf(ORION, ra, dec)[1];
+    const [x, y] = pixelOf(ORION, ra, dec);
     const s0 = R.sourcePoint(ORION, W, view, x, y);
-    const taps = R.footprintTaps(ORION, W, view, x, y);
-    assert.equal(taps.length, 16, name + " has 16 taps");
+    const taps = R.footprintTaps(ORION, W, view, x, y, 1);
+    assert.equal(taps.length, 25, name + " has 25 taps");
+    const wsum = taps.reduce((a, t) => a + t.w, 0);
+    assert.ok(Math.abs(wsum - 1) < 1e-12, name + " weights sum to 1");
     let mx = 0, my = 0;
-    for (const t of taps) { mx += t[0] / 16; my += t[1] / 16; }
-    assert.ok(Math.abs(mx - s0[0]) < 0.01 && Math.abs(my - s0[1]) < 0.01, name + " centred");
-    const ex = R.sourcePoint(ORION, W, view, x + 1, y);
-    const ey = R.sourcePoint(ORION, W, view, x, y + 1);
-    const fx = Math.abs(ex[0] - s0[0]) + Math.abs(ey[0] - s0[0]);
-    const fy = Math.abs(ex[1] - s0[1]) + Math.abs(ey[1] - s0[1]);
-    for (const t of taps) {
-      assert.ok(Math.abs(t[0] - s0[0]) <= fx / 2 + 1e-9, name + " x within footprint");
-      assert.ok(Math.abs(t[1] - s0[1]) <= fy / 2 + 1e-9, name + " y within footprint");
-    }
-    const spread = Math.max(...taps.map((t) => t[0])) - Math.min(...taps.map((t) => t[0]));
-    assert.ok(spread > 0.5 * fx, name + " spreads over the footprint");
+    for (const t of taps) { mx += t.p[0] * t.w; my += t.p[1] * t.w; }
+    assert.ok(Math.abs(mx - s0[0]) < 1e-6 && Math.abs(my - s0[1]) < 1e-6, name + " centred on sourcePoint");
   }
 });
 
+test("footprintTaps weights are the 5×5 Gaussian, symmetric about the centre", () => {
+  const view = R.viewFor(ORION, W, H);
+  const [ra, dec] = STARS.Betelgeuse;
+  const [x, y] = pixelOf(ORION, ra, dec);
+  const softness = 1.5;
+  const taps = R.footprintTaps(ORION, W, view, x, y, softness);
+  const s0 = R.sourcePoint(ORION, W, view, x, y);
+  const ex = R.sourcePoint(ORION, W, view, x + 1, y), ey = R.sourcePoint(ORION, W, view, x, y + 1);
+  const dx = [ex[0] - s0[0], ex[1] - s0[1]], dy = [ey[0] - s0[0], ey[1] - s0[1]];
+  // Each tap's offset in output pixels, recovered from its position (the footprint vectors are linear).
+  const offsets = taps.map((t) => {
+    const px = t.p[0] - s0[0], py = t.p[1] - s0[1];
+    const det = dx[0] * dy[1] - dy[0] * dx[1];
+    return [(px * dy[1] - dy[0] * py) / det, (dx[0] * py - px * dx[1]) / det];
+  });
+  const sigma = 0.5 * softness;
+  const raw = offsets.map(([u, v]) => Math.exp(-(u * u + v * v) / (2 * sigma * sigma)));
+  const total = raw.reduce((a, b) => a + b, 0);
+  taps.forEach((t, k) => {
+    assert.ok(Math.abs(t.w - raw[k] / total) < 1e-9, "weight " + k);
+  });
+  // Mirror pairs: the tap at (u, v) and the one at (-u, -v) carry the same weight.
+  const byKey = new Map(offsets.map((o, k) => [o[0].toFixed(6) + "," + o[1].toFixed(6), taps[k].w]));
+  for (const [u, v] of offsets) {
+    const mirror = byKey.get((-u).toFixed(6) + "," + (-v).toFixed(6));
+    assert.ok(mirror !== undefined && Math.abs(mirror - byKey.get(u.toFixed(6) + "," + v.toFixed(6))) < 1e-12, "mirror pair");
+  }
+});
+
+test("footprintTaps at softness 0 is a single tap at sourcePoint", () => {
+  const view = R.viewFor(ORION, W, H);
+  const [ra, dec] = STARS.Rigel;
+  const [x, y] = pixelOf(ORION, ra, dec);
+  const s0 = R.sourcePoint(ORION, W, view, x, y);
+  const taps = R.footprintTaps(ORION, W, view, x, y, 0);
+  assert.equal(taps.length, 1);
+  assert.equal(taps[0].w, 1);
+  assert.deepEqual(taps[0].p, s0);
+});
+
+test("footprintTaps spread is proportional to softness", () => {
+  const view = R.viewFor(ORION, W, H);
+  const [ra, dec] = STARS.Sirius;
+  const [x, y] = pixelOf(ORION, ra, dec);
+  const spread = (softness) => {
+    const xs = R.footprintTaps(ORION, W, view, x, y, softness).map((t) => t.p[0]);
+    return Math.max(...xs) - Math.min(...xs);
+  };
+  const one = spread(1);
+  assert.ok(one > 0, "spreads at softness 1");
+  assert.ok(Math.abs(spread(2) / one - 2) < 1e-9, "twice the softness, twice the spread");
+  assert.ok(Math.abs(spread(0.5) / one - 0.5) < 1e-9, "half the softness, half the spread");
+});
+
 test("footprintTaps falls back to the single source point beyond the projector's 120 degrees", () => {
-  const cam = { ra: 84, dec: 0, fov: 180, rotation: 0, projection: 0 };
+  // Dec 30 keeps this boundary pixel inside the source comp, so the fallback is the one tap, not none.
+  const cam = { ra: 84, dec: 30, fov: 180, rotation: 0, projection: 0 };
   const view = R.viewFor(cam, W, H);
   // The pixel just inside the 120 degree circle: its right neighbour lies beyond it.
   const pxPerRad = S.pixelsPerDegree(cam, W) / (Math.PI / 180);
   const x = 2 * Math.tan(60 * Math.PI / 180) * pxPerRad - 0.5;
-  const taps = R.footprintTaps(cam, W, view, x, 0);
+  const taps = R.footprintTaps(cam, W, view, x, 0, 1);
   assert.equal(taps.length, 1);
-  assert.equal(R.footprintTaps(cam, W, view, 3000, 0), null);
+  assert.equal(taps[0].w, 1);
+  assert.deepEqual(taps[0].p, R.sourcePoint(cam, W, view, x, 0));
+  assert.equal(R.footprintTaps(cam, W, view, 3000, 0, 1), null);
 });
 
 test("at camera Dec 7.3 the View position puts Betelgeuse and its tile where the filter samples them, within 1e-6", () => {

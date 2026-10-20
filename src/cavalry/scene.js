@@ -1163,11 +1163,13 @@ var AstroScene = (function () {
     for (var i = 0; i < CAMERA_KEYS.length; i++) api.connect(cameraId, A.CAMERA_ARRAY_ATTR + "." + i, utilId, A.CAMERA_ARRAY_ATTR + "." + i, true);
   }
 
-  // The photo's values a rebuild keeps: Imagery · Opacity (the utility's opacity), Brightness (the filter's gain) and Hide.
+  // The photo's values a rebuild keeps: Imagery · Opacity (the utility's opacity), Brightness (the filter's gain),
+  // Softness (the filter's softness) and Hide.
   function carriedImagery(im) {
     var o = im.opacityId ? Number(api.get(im.opacityId, A.CAMERA_ARRAY_ATTR + ".0")) : 100;
     var g = im.filterId ? Number(api.get(im.filterId, "gain")) : 1;
-    return { opacity: isFinite(o) ? o : 100, gain: isFinite(g) ? g : 1, hidden: !!api.get(im.groupId, "hidden") };
+    var s = im.filterId ? Number(api.get(im.filterId, "softness")) : 1;
+    return { opacity: isFinite(o) ? o : 100, gain: isFinite(g) ? g : 1, softness: isFinite(s) ? s : 1, hidden: !!api.get(im.groupId, "hidden") };
   }
 
   // The photo's layers, in the order they come down: the source comp's footage, then its groups (the level groups and View),
@@ -1256,7 +1258,7 @@ var AstroScene = (function () {
     if (!imageryPackAvailable().ok) throw new Error(PACK_MISSING);
     var budget = opts && opts.budgetMs !== undefined ? opts.budgetMs : IMAGERY_STEP_MS;
     var mapComp = api.getActiveComp(), size = compSize(), previous = imageryGroups(s).map(imageryParts);
-    var keep = previous.length ? carriedImagery(previous[0]) : { opacity: 100, gain: 1, hidden: false };
+    var keep = previous.length ? carriedImagery(previous[0]) : { opacity: 100, gain: 1, softness: 1, hidden: false };
     var queue = [], missingKeys = {}, assetOf = {}, levels = {}, levelOrder = [], next = 0, built = 0, unreadable = 0;
     plan.placements.forEach(function (p) {
       if (api.filePathExists(imageryPath(p))) queue.push(p);
@@ -1290,7 +1292,7 @@ var AstroScene = (function () {
       api.set(ref, identity());
       tagPart(ref, { category: "imageryRef" });
       filter = api.create(IMAGERY_TYPE, IMAGERY_FILTER_NAME);
-      api.set(filter, { frameW: size.width, gain: keep.gain, allowViewportClipping: false, samplingQuality: 1 });
+      api.set(filter, { frameW: size.width, gain: keep.gain, softness: keep.softness, allowViewportClipping: false, samplingQuality: 1 });
       api.connect(filter, "id", ref, "filters");
       api.parent(filter, rec.groupId);
       IMAGERY_CAMERA_FILTER_ATTRS.forEach(function (attr, i) { api.connect(s.cameraId, A.CAMERA_ARRAY_ATTR + "." + i, filter, attr, true); });

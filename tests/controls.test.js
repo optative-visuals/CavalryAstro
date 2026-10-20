@@ -133,14 +133,15 @@ test("linking rules: a target set apart on purpose or keyed is not relinked; one
   assert.deepEqual(dark.link, [], "b0 was unlinked on purpose and the glow is keyed: neither is relinked");
 });
 
-test("with imagery, the Controls have Imagery · Opacity, Hide and Brightness in that order, after Background and before Lines", () => {
+test("with imagery, the Controls have Imagery · Opacity, Hide, Brightness and Softness in that order, after Background and before Lines", () => {
   const p = C.plan(sky({ imagery: { opacity: "imo", group: "img", filter: "imf" } }));
   const at = labels(p).indexOf("Background · Colour");
-  assert.deepEqual(labels(p).slice(at + 1, at + 4), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness"]);
-  assert.equal(labels(p)[at + 4], "Lines · Hide");
+  assert.deepEqual(labels(p).slice(at + 1, at + 5), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness", "Imagery · Softness"]);
+  assert.equal(labels(p)[at + 5], "Lines · Hide");
   assert.deepEqual(row(p, "Imagery · Opacity"), { kind: "direct", layer: "imo", attr: "array.0", label: "Imagery · Opacity", overrides: { hardMin: 0, hardMax: 100 } });
   assert.deepEqual(row(p, "Imagery · Hide"), { kind: "direct", layer: "img", attr: "hidden", label: "Imagery · Hide" });
   assert.deepEqual(row(p, "Imagery · Brightness"), { kind: "direct", layer: "imf", attr: "gain", label: "Imagery · Brightness", overrides: { hardMin: 0, hardMax: 4 } });
+  assert.deepEqual(row(p, "Imagery · Softness"), { kind: "direct", layer: "imf", attr: "softness", label: "Imagery · Softness", overrides: { hardMin: 0, hardMax: 3 } });
   assert.ok(p.groups.every((g) => g === "main"), "the imagery rows are in the Sky controls");
 });
 

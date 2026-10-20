@@ -17,7 +17,7 @@ const DEG = Math.PI / 180;
 
 const OWN = {
   camRa: "double", camDec: "double", camFov: "double", camRotation: "double",
-  frameW: "double", viewScale: "double", viewOffset: "double2", gain: "double",
+  frameW: "double", viewScale: "double", viewOffset: "double2", gain: "double", softness: "double",
 };
 const ICONS = [
   { file: "cavalryAstro.png", size: 18 },
@@ -54,6 +54,9 @@ test("definitions.json defaults and ranges", () => {
   assert.equal(a.gain.default, 1);
   assert.equal(a.gain.min, 0);
   assert.equal(a.gain.max, 4);
+  assert.equal(a.softness.default, 1);
+  assert.equal(a.softness.min, 0);
+  assert.equal(a.softness.max, 3);
   assert.equal(a.camFov.default, 60);
   assert.equal(a.camFov.min, 0.5);
   assert.equal(a.camFov.max, 220);
@@ -139,9 +142,11 @@ test("the release zip carries the plugin, and the installer does not install it"
   assert.doesNotMatch(install, /CavalryAstro_plugin/);
 });
 
-test("the shader supersamples the output pixel with a 4x4 tap grid", () => {
+test("the shader softens the output pixel with a 5x5 Gaussian tap grid", () => {
   const code = codeOf(loadSksl());
-  assert.match(code, /for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*4\s*;/);
-  assert.match(code, /for\s*\(\s*int\s+j\s*=\s*0\s*;\s*j\s*<\s*4\s*;/);
+  assert.match(code, /for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*5\s*;/);
+  assert.match(code, /for\s*\(\s*int\s+j\s*=\s*0\s*;\s*j\s*<\s*5\s*;/);
+  assert.match(code, /exp\(/);
+  assert.match(code, /softness\s*<=\s*0\.001/);
   assert.match(code, /image\.eval\(/);
 });

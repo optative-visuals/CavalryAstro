@@ -110,12 +110,14 @@ Then, on the **Imagery** tab:
   counted in the status line. Press **Cancel** to stop: the part-built photo is taken down, and any older photo
   stays as it was.
 - **Rebuilding:** after you change the flight, press **Build imagery** again. The new photo replaces the old
-  one, and the Opacity and Brightness you set are kept.
+  one, and the Opacity, Brightness and Softness you set are kept.
 - **Layer order:** the photo sits above the drawn stars and below the constellation lines, borders, names and
   reveals. To put the drawn stars over the photo, drag the photo's group, **Imagery: NASA Deep Star Maps**,
   below the star layers in the Scene Window. The panel never moves it back.
 - **Controls:** once the photo exists, the sky's **Sky controls** hold three rows after **Background**:
-  **Imagery · Opacity** (0 to 100), **Imagery · Hide**, and **Imagery · Brightness** (0 to 4, the filter's gain).
+  **Imagery · Opacity** (0 to 100), **Imagery · Hide**, **Imagery · Brightness** (0 to 4, the filter's gain), and
+  **Imagery · Softness** (0 to 3).
+- **Softness** smooths the photo's finest stars so they don't twinkle as the camera moves; 0 is sharpest.
 - **Add attribution:** puts the credit **NASA/Goddard SVS · Gaia DR2: ESA/Gaia/DPAC** in the bottom left of the
   sky. Press it again and there is still one credit. NASA's images are public domain, but please keep the credit.
 
@@ -130,7 +132,7 @@ Change a value and the sky updates straight away.
 
 - **Sky controls** holds the camera (**Centre RA**, **Centre Dec**, **Field of view**, **Rotation**), the
   stars (**Sky darkness**, **Size** and **Glow**), the **Background** colour, the photo's **Imagery · Opacity**,
-  **Hide** and **Brightness** (once the photo exists), and each line set's **Hide**, **Colour** and **Width**. The names have their own **Hide**, **Colour** and **Size**.
+  **Hide**, **Brightness** and **Softness** (once the photo exists), and each line set's **Hide**, **Colour** and **Width**. The names have their own **Hide**, **Colour** and **Size**.
 - **Reveal controls** holds each reveal in its own block, numbered to match its group. Each block has
   **Amount %**, **Spotlight**, the lines' colour and width, the border colour and, when the title is shown,
   its mode, corner and size. Labels have a size too.

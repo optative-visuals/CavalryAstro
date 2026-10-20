@@ -1885,13 +1885,14 @@ test("the build steps on a timer: every asset loads in the first step, then one 
   assert.ok(steps.length >= 2, "progress is reported each step");
 });
 
-test("a rebuild leaves exactly one imagery group, and the Imagery · Opacity value set before the rebuild is kept", () => {
+test("a rebuild leaves exactly one imagery group, and the Imagery · Opacity and Softness set before the rebuild are kept", () => {
   const f = skyFixture();
   const plan = f.S.planImagery(f.sky);
   putTiles(f.api, plan);
   buildImagery(f, plan);
   const first = f.S.findImagery(f.sky);
   f.api.set(first.opacityId, { "array.0": 42 });
+  f.api.set(first.filterId, { softness: 2.5 });
   const again = buildImagery(f, f.S.planImagery(f.sky));
   assert.equal(again.result.ok, true, again.result.error);
   const groups = f.api.getChildren(f.sky.groupId).filter((id) => f.api.getNiceName(id) === IMG_GROUP);
@@ -1901,6 +1902,7 @@ test("a rebuild leaves exactly one imagery group, and the Imagery · Opacity val
   const now = f.S.findImagery(f.sky);
   assert.notEqual(now.groupId, first.groupId);
   assert.equal(f.api.get(now.opacityId, "array.0"), 42);
+  assert.equal(f.api.get(now.filterId, "softness"), 2.5, "the Softness is kept");
 });
 
 test("with a reveal at Amount 100 and Spotlight 60, the imagery opacity utility's effective value is opacity × 0.4", () => {
@@ -2085,7 +2087,7 @@ test("Build imagery on Yes builds in steps, says how many tiles, and the Control
   assert.ok(S.findImagery(sky), "the photo is built");
   const labels = promotedLabels(api, compNamed(api, "Sky 1 Sky controls"));
   const at = labels.indexOf("Background · Colour");
-  assert.deepEqual(labels.slice(at + 1, at + 4), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness"]);
+  assert.deepEqual(labels.slice(at + 1, at + 5), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness", "Imagery · Softness"]);
 });
 
 test("while an imagery build runs, Reveal selected is refused with the status text and makes no reveal", () => {

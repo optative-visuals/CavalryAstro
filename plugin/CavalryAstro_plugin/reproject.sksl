@@ -12,6 +12,7 @@ uniform float frameW;
 uniform float viewScale;
 uniform float2 viewOffset;
 uniform float gain;
+uniform float softness;
 uniform shader image;
 
 const float D2R = 0.0174532925199433;
@@ -97,26 +98,33 @@ half4 main(float2 p) {
   float3 ex = sourcePoint(p + float2(1.0, 0.0));
   float3 ey = sourcePoint(p + float2(0.0, 1.0));
 
-  // A neighbour lies beyond the projector's 120 degrees: one tap at the pixel's own source point.
-  if (ex.z == 0.0 || ey.z == 0.0) {
+  // Softness 0, or a neighbour lies beyond the projector's 120 degrees: one tap at the pixel's own source point.
+  if (softness <= 0.001 || ex.z == 0.0 || ey.z == 0.0) {
     if (!inComp(s0.xy)) { return half4(0.0); }
     return grade(image.eval(s0.xy - float2(SOURCE_PX * 0.5)));
   }
 
-  // Supersample: a 4×4 grid of taps over the pixel's footprint, whose edges are the neighbours' source points.
+  // Soften: a 5×5 Gaussian over the pixel's footprint. Taps sit at u, v in {-1, -0.5, 0, 0.5, 1} × softness output
+  // pixels along the neighbours' directions, with sigma = 0.5 × softness. Invalid taps are skipped and the weights
+  // normalised over the valid ones, so the average stays premultiplied.
   float2 dx = ex.xy - s0.xy;
   float2 dy = ey.xy - s0.xy;
+  float sigma = 0.5 * softness;
+  float inv2Sigma2 = 1.0 / (2.0 * sigma * sigma);
   float4 sum = float4(0.0);
   float n = 0.0;
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-      float2 s = s0.xy + dx * ((float(i) + 0.5) / 4.0 - 0.5) + dy * ((float(j) + 0.5) / 4.0 - 0.5);
+  for (int i = 0; i < 5; i++) {
+    for (int j = 0; j < 5; j++) {
+      float u = (float(i) - 2.0) * 0.5 * softness;
+      float v = (float(j) - 2.0) * 0.5 * softness;
+      float2 s = s0.xy + dx * u + dy * v;
       if (!inComp(s) || !withinProjector(s)) { continue; }
-      sum += float4(image.eval(s - float2(SOURCE_PX * 0.5)));
-      n += 1.0;
+      float w = exp(-(u * u + v * v) * inv2Sigma2);
+      sum += w * float4(image.eval(s - float2(SOURCE_PX * 0.5)));
+      n += w;
     }
   }
   if (n == 0.0) { return half4(0.0); }
-  // The premultiplied average over the valid taps, then the brightness.
+  // The premultiplied weighted average over the valid taps, then the brightness.
   return grade(half4(sum / n));
 }
