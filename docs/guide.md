@@ -170,6 +170,10 @@ The **⚙** button opens the settings, a popover under the button. Press outside
 
 - **One imagery source.** The **Imagery** tab offers NASA Deep Star Maps only, and it needs the plugin and the
   imagery pack (see [Imagery](#imagery)).
+- **The photo is softer near a celestial pole.** Close to the north or south celestial pole the photo's pixels
+  are stretched, so it looks softer when the camera points there.
+- **Wide comps aren't fully covered.** In v0.2 the photo is fitted into a 4104 px square, so a comp wider than
+  4104 px is not fully covered by the photo.
 - **No place and time in v0.1.** The sky is not yet set for a place on Earth or a time. That comes in
   v0.3.
 - **No Moon or planets in v0.1.** They come in v0.4.
