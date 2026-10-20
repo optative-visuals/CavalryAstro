@@ -138,3 +138,10 @@ test("the release zip carries the plugin, and the installer does not install it"
   const install = fs.readFileSync(path.join(ROOT, "tools", "install.js"), "utf8");
   assert.doesNotMatch(install, /CavalryAstro_plugin/);
 });
+
+test("the shader supersamples the output pixel with a 4x4 tap grid", () => {
+  const code = codeOf(loadSksl());
+  assert.match(code, /for\s*\(\s*int\s+i\s*=\s*0\s*;\s*i\s*<\s*4\s*;/);
+  assert.match(code, /for\s*\(\s*int\s+j\s*=\s*0\s*;\s*j\s*<\s*4\s*;/);
+  assert.match(code, /image\.eval\(/);
+});

@@ -134,3 +134,96 @@ test("tileLocal places the tile holding Betelgeuse so the star's source point fa
   const box = I.tileBox(3, tile.row, tile.col);
   assert.ok(Math.abs(t.scale * I.TILE - (box.ra1 - box.ra0) * view.scale) < 1e-9, "tile size in source px");
 });
+
+// ---- Quantised view (aliasing fix): scale in 1/8-octave steps, whole-pixel offsets, 16-tap footprint. ----
+
+const FOV_CAMS = [
+  { ra: 84, dec: 0, fov: 30, rotation: 0, projection: 0 },
+  { ra: 84, dec: 0, fov: 62.5, rotation: 0, projection: 0 },
+  { ra: 84, dec: 0, fov: 63, rotation: 0, projection: 0 },
+  { ra: 84, dec: 0, fov: 100, rotation: 0, projection: 0 },
+  { ra: 84, dec: 0, fov: 180, rotation: 0, projection: 0 },
+  { ra: 40, dec: 90, fov: 60, rotation: 0, projection: 0 },
+  { ra: 40, dec: -90, fov: 45, rotation: 0, projection: 0 },
+  { ra: 0.3, dec: 20, fov: 40, rotation: 0, projection: 0 },
+  { ra: 359.8, dec: -10, fov: 50, rotation: 30, projection: 0 },
+];
+
+test("viewFor's scale is a 1/8-octave power of two, at most the raw scale", () => {
+  for (const cam of FOV_CAMS) {
+    const view = R.viewFor(cam, W, H);
+    const steps = 8 * Math.log(view.scale) / Math.LN2;
+    assert.ok(Math.abs(steps - Math.round(steps)) < 1e-9, "1/8-octave step for fov " + cam.fov + " " + steps);
+    assert.ok(view.scale <= view.rawScale * (1 + 1e-12), "scale <= raw for fov " + cam.fov);
+    assert.ok(view.scale * Math.pow(2, 1 / 8) > view.rawScale * (1 - 1e-12), "within one step of raw for fov " + cam.fov);
+  }
+});
+
+test("viewFor's offsets are whole source pixels", () => {
+  for (const cam of FOV_CAMS) {
+    const view = R.viewFor(cam, W, H);
+    assert.ok(Number.isInteger(view.offset[0]), "offset x for fov " + cam.fov);
+    assert.ok(Number.isInteger(view.offset[1]), "offset y for fov " + cam.fov);
+  }
+});
+
+test("the quantised box stays inside the source comp, sampled densely over the frame", () => {
+  for (const cam of FOV_CAMS) {
+    const view = R.viewFor(cam, W, H);
+    for (let gy = 0; gy <= 36; gy++) {
+      for (let gx = 0; gx <= 64; gx++) {
+        const x = -W / 2 + (gx * W) / 64;
+        const y = -H / 2 + (gy * H) / 36;
+        const s = R.sourcePoint(cam, W, view, x, y);
+        if (!s) continue;
+        assert.ok(s[0] >= 0 && s[0] <= SOURCE, "sx in comp, fov " + cam.fov + " ra " + cam.ra);
+        assert.ok(s[1] >= 0 && s[1] <= SOURCE, "sy in comp, fov " + cam.fov + " dec " + cam.dec);
+      }
+    }
+  }
+});
+
+test("cameras 0.01 deg apart in RA at the same fov share the quantised scale, offsets whole pixels apart", () => {
+  const a = R.viewFor({ ra: 84, dec: 0, fov: 62.5, rotation: 0, projection: 0 }, W, H);
+  const b = R.viewFor({ ra: 84.01, dec: 0, fov: 62.5, rotation: 0, projection: 0 }, W, H);
+  assert.equal(a.scale, b.scale, "same scale");
+  for (let k = 0; k < 2; k++) {
+    const d = b.offset[k] - a.offset[k];
+    assert.ok(Math.abs(d - Math.round(d)) < 1e-9, "offset " + k + " differs by whole pixels: " + d);
+  }
+});
+
+test("footprintTaps returns 16 points centred on sourcePoint, within half the pixel footprint", () => {
+  const view = R.viewFor(ORION, W, H);
+  for (const name of Object.keys(STARS)) {
+    const [ra, dec] = STARS[name];
+    const x = pixelOf(ORION, ra, dec)[0], y = pixelOf(ORION, ra, dec)[1];
+    const s0 = R.sourcePoint(ORION, W, view, x, y);
+    const taps = R.footprintTaps(ORION, W, view, x, y);
+    assert.equal(taps.length, 16, name + " has 16 taps");
+    let mx = 0, my = 0;
+    for (const t of taps) { mx += t[0] / 16; my += t[1] / 16; }
+    assert.ok(Math.abs(mx - s0[0]) < 0.01 && Math.abs(my - s0[1]) < 0.01, name + " centred");
+    const ex = R.sourcePoint(ORION, W, view, x + 1, y);
+    const ey = R.sourcePoint(ORION, W, view, x, y + 1);
+    const fx = Math.abs(ex[0] - s0[0]) + Math.abs(ey[0] - s0[0]);
+    const fy = Math.abs(ex[1] - s0[1]) + Math.abs(ey[1] - s0[1]);
+    for (const t of taps) {
+      assert.ok(Math.abs(t[0] - s0[0]) <= fx / 2 + 1e-9, name + " x within footprint");
+      assert.ok(Math.abs(t[1] - s0[1]) <= fy / 2 + 1e-9, name + " y within footprint");
+    }
+    const spread = Math.max(...taps.map((t) => t[0])) - Math.min(...taps.map((t) => t[0]));
+    assert.ok(spread > 0.5 * fx, name + " spreads over the footprint");
+  }
+});
+
+test("footprintTaps falls back to the single source point beyond the projector's 120 degrees", () => {
+  const cam = { ra: 84, dec: 0, fov: 180, rotation: 0, projection: 0 };
+  const view = R.viewFor(cam, W, H);
+  // The pixel just inside the 120 degree circle: its right neighbour lies beyond it.
+  const pxPerRad = S.pixelsPerDegree(cam, W) / (Math.PI / 180);
+  const x = 2 * Math.tan(60 * Math.PI / 180) * pxPerRad - 0.5;
+  const taps = R.footprintTaps(cam, W, view, x, 0);
+  assert.equal(taps.length, 1);
+  assert.equal(R.footprintTaps(cam, W, view, 3000, 0), null);
+});

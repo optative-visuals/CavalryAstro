@@ -41,15 +41,28 @@ var AstroReproject = (function () {
     if (poleInFrame(cam, frameW, frameH, 90)) { halfRa = 180; dec1 = 90; }
     if (poleInFrame(cam, frameW, frameH, -90)) { halfRa = 180; dec0 = -90; }
     var span = Math.max(2 * halfRa, dec1 - dec0, 1e-9);
-    var scale = SOURCE_PX * (1 - 2 * MARGIN) / span;
+    var rawScale = SOURCE_PX * (1 - 2 * MARGIN) / span;
+    // Quantised DOWN to 1/8-octave steps, so a slowly moving camera keeps one scale for many frames (no re-sampling
+    // shimmer). Flooring only shrinks the box, but the offset is rounded to whole source pixels, so recheck the
+    // containment and step one more 1/8 octave down if the rounding pushes an edge out.
+    var scale = Math.pow(2, Math.floor(8 * Math.log(rawScale) / Math.LN2) / 8);
     var decMid = (dec0 + dec1) / 2;
+    var offset;
+    for (;;) {
+      offset = [SOURCE_PX / 2, Math.round(SOURCE_PX / 2 - decMid * scale)];
+      var fits = halfRa * scale <= SOURCE_PX / 2 &&
+        offset[1] + dec0 * scale >= 0 && offset[1] + dec1 * scale <= SOURCE_PX;
+      if (fits) break;
+      scale = Math.pow(2, Math.log(scale) / Math.LN2 - 1 / 8);
+    }
     return {
       ra0: cam.ra - halfRa,
       ra1: cam.ra + halfRa,
       dec0: dec0,
       dec1: dec1,
       scale: scale,
-      offset: [SOURCE_PX / 2, SOURCE_PX / 2 - decMid * scale]
+      rawScale: rawScale,
+      offset: offset
     };
   }
 
@@ -60,6 +73,29 @@ var AstroReproject = (function () {
     var radec = AstroSky.unproject(cam, frameW, x, y);
     var d = relRa(radec[0], cam.ra);
     return [d * view.scale + view.offset[0], radec[1] * view.scale + view.offset[1]];
+  }
+
+  // The 16 source points the shader averages for output pixel (x, y): a 4×4 grid over the pixel's footprint, whose
+  // edges are the source points of the pixel's right and upper neighbours. Mirrors the shader's tap layout (i outer,
+  // j inner). Returns the single source point when a neighbour lies beyond the projector's 120 degrees (the shader
+  // falls back to one tap there), and null when the pixel itself lies beyond them.
+  function footprintTaps(cam, frameW, view, x, y) {
+    var s0 = sourcePoint(cam, frameW, view, x, y);
+    if (!s0) return null;
+    var sx = sourcePoint(cam, frameW, view, x + 1, y);
+    var sy = sourcePoint(cam, frameW, view, x, y + 1);
+    if (!sx || !sy) return [s0];
+    var dx = [sx[0] - s0[0], sx[1] - s0[1]];
+    var dy = [sy[0] - s0[0], sy[1] - s0[1]];
+    var taps = [];
+    for (var i = 0; i < 4; i++) {
+      for (var j = 0; j < 4; j++) {
+        var fi = (i + 0.5) / 4 - 0.5;
+        var fj = (j + 0.5) / 4 - 0.5;
+        taps.push([s0[0] + dx[0] * fi + dy[0] * fj, s0[1] + dx[1] * fi + dy[1] * fj]);
+      }
+    }
+    return taps;
   }
 
   // A tile's centre in the source comp, and its layer scale (source px per tile px), at the same mapping.
@@ -81,6 +117,7 @@ var AstroReproject = (function () {
     SOURCE_PX: SOURCE_PX,
     viewFor: viewFor,
     sourcePoint: sourcePoint,
+    footprintTaps: footprintTaps,
     tileLocal: tileLocal
   };
 })();
