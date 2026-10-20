@@ -1765,6 +1765,26 @@ test("the imagery drivers repair a bad camera: projection 1 and fov NaN evaluate
   });
 });
 
+test("an empty level group is deleted from the source comp, and the build still finishes", () => {
+  const f = skyFixture();
+  const realParent = f.api.parent, realDelete = f.api.deleteLayer;
+  // No tile can be parented into its level group, so every level group is left empty.
+  f.api.parent = (id, p) => { if (f.api.getLayerType(id) === "footage") return; realParent(id, p); };
+  // A layer can only be deleted from its own comp (as Cavalry's), so the deletion must run with the source comp active.
+  f.api.deleteLayer = (id) => {
+    const c = f.api._compOf[id];
+    if (c && c !== f.api.getActiveComp()) throw new Error("the layer is not in the active comp");
+    return realDelete(id);
+  };
+  const plan = f.S.planImagery(f.sky);
+  putTiles(f.api, plan);
+  const b = buildImagery(f, plan);
+  assert.equal(b.result.ok, true, b.result.error);
+  const im = f.S.findImagery(f.sky);
+  const view = f.api._layers.find((id) => f.api._compOf[id] === im.sourceComp && f.api.getNiceName(id) === "View");
+  assert.deepEqual(f.api.getChildren(view).filter((id) => /^z /.test(f.api.getNiceName(id))), [], "no empty level group is left");
+});
+
 test("the filter's camera inputs are connected to the Camera, and frameW is the comp's width", () => {
   const f = skyFixture();
   const plan = f.S.planImagery(f.sky);

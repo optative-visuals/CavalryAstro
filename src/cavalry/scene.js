@@ -1318,8 +1318,13 @@ var AstroScene = (function () {
     // connected, and the previous photo hidden and queued for removal. Empty level groups (all their tiles unreadable) go.
     function drivers() {
       var W = size.width, H = size.height;
+      // A level group lives in the source comp, so it is deleted with that comp active. Best-effort: an empty group is harmless.
       Object.keys(levels).forEach(function (L) {
-        if (!api.getChildren(levels[L]).length) { deleteIfThere(levels[L]); }
+        try {
+          withComp(rec.sourceComp, mapComp, function () {
+            if (!api.getChildren(levels[L]).length) deleteIfThere(levels[L]);
+          });
+        } catch (e) { /* best-effort: an empty level group is harmless */ }
       });
       levelOrder = levelOrder.filter(function (L) { return api.getChildren(levels[L]).length > 0; });
       IMAGERY_VIEW_DRIVERS.forEach(function (d) {
