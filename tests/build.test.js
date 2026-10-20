@@ -1584,7 +1584,7 @@ const AstroImagery = require("../src/core/imagery.js");
 const AstroReproject = require("../src/core/reproject.js");
 const AstroSky = require("../src/core/sky.js");
 const IMG_PLUGIN_MISSING = "Imagery needs the CavalryAstro plugin: drag the CavalryAstro_plugin folder from the download into the Cavalry window once, then press Build imagery again.";
-const IMG_PACK_MISSING = "Imagery needs the imagery pack: download CavalryAstro-imagery.zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
+const IMG_PACK_MISSING = "Imagery needs the imagery pack: download the CavalryAstro-imagery zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
 const IMG_ASSETS = "C:/fake/AppData/Scripts/CavalryAstro_assets";
 const IMG_GROUP = "Imagery: NASA Deep Star Maps";
 

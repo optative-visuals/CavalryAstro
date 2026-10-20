@@ -986,7 +986,7 @@ var AstroScene = (function () {
   // photo's opacity utility. The source comp's centre is 0,0, so a point at uncentred source px p sits at p - SOURCE_PX / 2.
   var IMAGERY_TYPE = "cavalryAstro::reproject";
   var REPROJECT_MISSING = "Imagery needs the CavalryAstro plugin: drag the CavalryAstro_plugin folder from the download into the Cavalry window once, then press Build imagery again.";
-  var PACK_MISSING = "Imagery needs the imagery pack: download CavalryAstro-imagery.zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
+  var PACK_MISSING = "Imagery needs the imagery pack: download the CavalryAstro-imagery zip from the CavalryAstro releases page, unzip it and merge its CavalryAstro_assets folder into the one in your Scripts folder (Help → Show Scripts Folder), then press Build imagery again.";
   var IMAGERY_GROUP_NAME = "Imagery: NASA Deep Star Maps", IMAGERY_SOURCE_PREFIX = "Imagery source: NASA Deep Star Maps · ";
   var IMAGERY_ASSET_PREFIX = "CavalryAstro imagery · ", IMAGERY_KEY = "astroImagery", IMAGERY_VERSION = 1;
   var IMAGERY_VIEW_NAME = "View", IMAGERY_REF_NAME = "Imagery source", IMAGERY_FILTER_NAME = "CavalryAstro Reproject", IMAGERY_OPACITY_NAME = "Imagery opacity";
