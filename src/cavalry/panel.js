@@ -89,6 +89,17 @@ function guardAction(fn, keepSelection, allowNested) {
     nudgeRedraw();
   };
 }
+// A scene action (one that changes the sky) is refused while an imagery build runs: its steps are changing the sky's layers.
+// Cancel and the build's own progress stay allowed. The status line says what to do.
+var IMAGERY_BUSY_TEXT = "Imagery is being built. Press Cancel or wait for it to finish.";
+function refuseDuringImagery() {
+  if (!imageryJob) return false;
+  say(IMAGERY_BUSY_TEXT);
+  return true;
+}
+function guardScene(fn) {
+  return guardAction(function () { if (!refuseDuringImagery()) fn(); });
+}
 function column(items) {
   var v = new ui.VLayout();
   v.setMargins(0, 6, 0, 0); // flush left and right: everything shares one left edge
@@ -642,7 +653,7 @@ refreshSkiesBtn.onClick = guardAction(function () {
 });
 
 // Makes a sky at the green frame, and selects it. It is named Sky 1, Sky 2... unless a name is typed.
-createHereBtn.onClick = guardAction(function () {
+createHereBtn.onClick = guardScene(function () {
   var f = AstroPreview.frameCamera(preview.view()), typed = nameField.getText().trim();
   var name = typed ? uniqueSkyName(typed) : numberedSkyName();
   var made = AstroScene.createSky(name, { ra: f.ra, dec: f.dec, fov: f.fov, rotation: 0, projection: 0 }, pickedTheme().name);
@@ -650,7 +661,7 @@ createHereBtn.onClick = guardAction(function () {
   say("Created sky \"" + name + "\" at the preview frame. Its controls are in \"" + name + " Sky controls\" in the Scene Window.");
 });
 
-jumpBtn.onClick = guardAction(function () {
+jumpBtn.onClick = guardScene(function () {
   var sky = currentSky(), t = frameTarget();
   AstroScene.jumpCamera(sky, t.cam);
   say("Camera jumped to " + t.label + " (field of view " + t.cam.fov.toFixed(1) + "°).");
@@ -658,7 +669,7 @@ jumpBtn.onClick = guardAction(function () {
 });
 
 // Flies from the Start frame to the End frame, from the camera as it is at Start, to the green frame.
-flyBtn.onClick = guardAction(function () {
+flyBtn.onClick = guardScene(function () {
   var plan = planMove("flight"), from = plan.from, to = plan.to, t = frameTarget();
   var extended = extendForMove(plan, "flight", "Fly here");
   if (extended === null) return;
@@ -673,7 +684,7 @@ flyBtn.onClick = guardAction(function () {
 });
 
 // Redoes the flight under the playhead with the current Easing and Zoom-out, keeping its frames and destination.
-updateFlightBtn.onClick = guardAction(function () {
+updateFlightBtn.onClick = guardScene(function () {
   var sky = currentSky(), cr = AstroScene.compFrameRange();
   var rec = AstroScene.flightAt(sky, Math.max(cr.start, Math.min(cr.end, playhead())));
   if (!rec) throw new Error("Put the playhead inside a flight made with Fly here first.");
@@ -686,7 +697,7 @@ updateFlightBtn.onClick = guardAction(function () {
 });
 
 // A small move from the camera as it is at Start, over Start to End: push in, pull out or pan.
-driftBtn.onClick = guardAction(function () {
+driftBtn.onClick = guardScene(function () {
   var plan = planMove("drift"), from = plan.from, to = plan.to, sky = plan.sky;
   var extended = extendForMove(plan, "drift", "Drift");
   if (extended === null) return;
@@ -719,7 +730,7 @@ themePicker.onValueChanged = guard(function () {
   stylePreview = pickedTheme();
   previewShowSky();
 });
-applyStyleBtn.onClick = guardAction(function () {
+applyStyleBtn.onClick = guardScene(function () {
   var sky = currentSky(), theme = pickedTheme(), r = AstroScene.applyTheme(sky, theme);
   previewShowSky();
   var left = r.skipped ? " " + r.skipped + " animated or connected colour" + (r.skipped === 1 ? " was" : "s were") + " left alone." : "";
@@ -788,14 +799,14 @@ function showStarValues() {
   } finally { refreshingStars = false; }
 }
 darknessSlider.onValueChanged = guard(function () {
-  if (!refreshingStars) AstroScene.setDarkness(currentSky(), darknessSlider.getValue());
+  if (!refreshingStars && !refuseDuringImagery()) AstroScene.setDarkness(currentSky(), darknessSlider.getValue());
 });
 starSizeField.onValueChanged = guard(function () {
-  if (!refreshingStars) AstroScene.setStarSize(currentSky(), starSizeField.getValue());
+  if (!refreshingStars && !refuseDuringImagery()) AstroScene.setStarSize(currentSky(), starSizeField.getValue());
 });
 // A switch's change is an action: it catches the panel up with the canvas first, as the buttons do.
 function starSwitch(toggle, write) {
-  toggle.onValueChanged = function (on) { guardAction(function () { write(currentSky(), on); })(); };
+  toggle.onValueChanged = function (on) { guardScene(function () { write(currentSky(), on); })(); };
 }
 starSwitch(colourToggle, function (sky, on) { AstroScene.setStarColours(sky, on); });
 starSwitch(glowToggle, function (sky, on) { AstroScene.setGlow(sky, on); });
@@ -925,7 +936,7 @@ revealList.onSelectionChanged = function (uuids) {
     revealOpened = true;
   })();
 };
-revealBtn.onClick = guardAction(function () {
+revealBtn.onClick = guardScene(function () {
   var sky = currentSky(), rows = pickedRows(revealList.getSelection());
   if (!rows.length) throw new Error("Pick one or more constellations in the list first.");
   var start = Math.round(Number(revealStartField.getValue()) || 0);
@@ -941,7 +952,7 @@ revealBtn.onClick = guardAction(function () {
   say("Made " + names.length + (names.length === 1 ? " reveal" : " reveals") + " in " + sky.name + ": " + names.join(", ") +
     " (frames " + first + " to " + start + ").");
 });
-changeRevealBtn.onClick = guardAction(function () {
+changeRevealBtn.onClick = guardScene(function () {
   var found = revealOfSelection(currentSelection() || []);
   if (!found) { say("Select a reveal group (or a layer inside it) in the Scene Window first."); return; }
   AstroScene.changeReveal(found.groupId, revealParts(), { titleMode: titleStylePicker.getValue() });

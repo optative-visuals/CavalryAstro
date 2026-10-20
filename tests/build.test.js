@@ -2090,6 +2090,24 @@ test("Build imagery on Yes builds in steps, says how many tiles, and the Control
   assert.deepEqual(labels.slice(at + 1, at + 4), ["Imagery · Opacity", "Imagery · Hide", "Imagery · Brightness"]);
 });
 
+test("while an imagery build runs, Reveal selected is refused with the status text and makes no reveal", () => {
+  const { ui, api, context, sky } = panelWithSky();
+  const S = context.AstroScene, plan = S.planImagery(sky);
+  putPack(api);
+  putTiles(api, plan);
+  pickConstellations(ui, ["Orion"]);
+  openImageryTab(ui);
+  const from = api._timers.length;
+  findButton(ui, "Build imagery").onClick(); // asks (Yes); the build is stepped by timers, which are not run yet
+  assert.equal(statusText(ui), "Building imagery…", "the build is running");
+  const before = S.findReveals(sky).length;
+  findButton(ui, "Reveal selected").onClick();
+  assert.equal(statusText(ui), "Imagery is being built. Press Cancel or wait for it to finish.");
+  assert.equal(S.findReveals(sky).length, before, "no reveal was made");
+  runNewTimers(api, from);
+  assert.match(statusText(ui), /^Imagery built/);
+});
+
 test("Cancel with nothing building says so", () => {
   const { ui } = panelWithSky();
   openImageryTab(ui);
